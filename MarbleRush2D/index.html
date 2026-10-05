@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#07080c" />
+<title>MarbleRush · Live Marble Racing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=JetBrains+Mono:wght@500;600;700&display=swap" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- the course: full bleed, everything else floats over it -->
+  <div id="stage"><canvas id="board"></canvas></div>
+
+  <!-- ============================ top bar ============================ -->
+  <header class="topbar" data-hud>
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <h1>Marble<em>Rush</em></h1>
+      <span class="tag" id="roundTag">#1</span>
+    </div>
+
+    <div class="clock">
+      <span class="phase"><i class="live" id="livePill">LIVE</i><span id="phaseLabel">Betting open</span></span>
+      <strong id="raceClock">0:30</strong>
+    </div>
+
+    <div class="right">
+      <span class="fair" title="The race is fixed by this hash before betting opens; the seed is revealed when the gates open.">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1l6 2.5v4.2c0 3.6-2.6 6.3-6 7.3-3.4-1-6-3.7-6-7.3V3.5L8 1zm-1 9.2l4.6-4.6-1.1-1.1L7 8l-1.5-1.5-1.1 1.1L7 10.2z"/></svg>
+        <span>Provably fair</span><code id="commitment">-</code>
+      </span>
+      <div class="wallet">
+        <span>Balance</span>
+        <strong id="balance">-</strong>
+      </div>
+      <button id="helpBtn" class="iconbtn" title="How MarbleRush works" aria-label="How it works">?</button>
+    </div>
+  </header>
+
+  <!-- ===================== left: the timing tower ===================== -->
+  <aside class="tower" id="standingsPanel" data-hud>
+    <div class="tower-head">
+      <span class="tower-title">Classification</span>
+      <span class="sector" id="sectionName">Starting grid</span>
+    </div>
+    <ol id="standings" class="tower-rows"></ol>
+    <!-- the whole course, start to finish, with every coin on it -->
+    <div class="coursemap" id="courseMap" aria-label="Course progress">
+      <div class="cm-track"></div>
+      <div class="cm-marks" id="cmMarks"></div>
+      <div class="cm-dots" id="cmDots"></div>
+    </div>
+  </aside>
+
+  <!-- ======================= right: market + slip ===================== -->
+  <aside class="rail" id="rail" data-hud>
+    <section class="card cam">
+      <div class="card-head"><span>Side cam</span><span id="camName" class="muted">-</span></div>
+      <canvas id="leaderCam"></canvas>
+    </section>
+
+    <section class="card market tote" id="totePanel">
+      <div class="card-head">
+        <span>Market</span>
+        <span class="muted"><span id="places">Top 2 paid</span> · Pool <strong id="poolTotal">0.00</strong></span>
+      </div>
+      <ul id="tote" class="runners"></ul>
+
+      <div class="lobby" id="lobby">
+        <div class="lobbyrow"><span id="lobbyLabel">Betting closes in</span><strong id="lobbyClock">0:30</strong></div>
+        <div class="lobbybar"><i id="lobbyFill"></i></div>
+      </div>
+
+      <div class="slip">
+        <div class="stakes" id="stakes"></div>
+        <button id="placeBet" class="cta" disabled>Select a marble</button>
+        <p class="fineprint">Rake <span id="rakePct">5%</span> · parimutuel: odds move as money arrives</p>
+      </div>
+    </section>
+
+    <section class="card feedcard">
+      <div class="card-head"><span>Live bets</span><span id="feedCount" class="muted">-</span></div>
+      <ul id="feed" class="feed"></ul>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span>Recent races</span></div>
+      <ul id="history" class="history"></ul>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span>Your record</span></div>
+      <dl id="record" class="record"></dl>
+    </section>
+  </aside>
+
+  <!-- camera: the director, the pack, the leader, or any one marble -->
+  <div class="cambar" id="camBar" aria-label="Camera">
+    <span class="camwhy" id="camWhy"></span>
+    <button data-cam="auto" class="on">Auto</button><button data-cam="pack">Pack</button><button data-cam="leader">Leader</button>
+    <span class="camcoins" id="camCoins"></span>
+  </div>
+
+  <!-- race control: knockouts and anything else a bettor must not miss -->
+  <div class="banner" id="banner" hidden></div>
+
+  <!-- ============================ overlays ============================ -->
+  <div class="overlay lights" id="countdownOverlay" hidden>
+    <div class="gantry" id="gantry"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="count" id="countdownValue">3</div>
+    <p id="countdownNote">Marbles ready</p>
+  </div>
+
+  <canvas id="confetti" aria-hidden="true"></canvas>
+
+  <div class="overlay" id="resultOverlay" hidden>
+    <div class="card result">
+      <p class="kicker">Chequered flag</p>
+      <div class="podium" id="podium"></div>
+      <div class="winner"><span class="swatch" id="winSwatch"></span><h2 id="winName">-</h2><span class="wintime" id="winTime">-</span></div>
+      <p class="payout" id="payout"></p>
+      <div class="burst" id="burst" aria-hidden="true"></div>
+      <ol class="final" id="finalOrder"></ol>
+      <div class="koreplay" id="koReplay" hidden>
+        <div class="kohead"><span>Knockout replay</span><span id="koLabel"></span></div>
+        <canvas id="koCanvas"></canvas>
+      </div>
+      <button id="nextRace" class="cta">Next race</button>
+      <p class="nextnote" id="nextNote"></p>
+    </div>
+  </div>
+
+  <div class="overlay modal" id="helpOverlay" hidden>
+    <div class="card help">
+      <p class="kicker">How MarbleRush works</p>
+      <ol class="steps">
+        <li><b>Back a marble.</b> Every stake goes into one pool. Odds are what
+            the pool would pay right now, and they move as money arrives,
+            exactly like a tote board.</li>
+        <li><b>Ready up.</b> When everyone at the table is ready the lights go
+            out. A 30 second clock runs the lobby: anyone without a bet when it
+            expires is staked the 5 minimum on the least backed marble.</li>
+        <li><b>Every course is new.</b> Built for each race from a library of
+            over a hundred sections, about 3 to 4 minutes long, and arranged
+            so the race stays open to the end: one of two fair openers, calm
+            sections early, a mix of machines in the run-in, and a Mempool
+            that bunches the field.</li>
+        <li><b>Machines wear.</b> The first marble to reach a machine meets it
+            at full strength: the longest flipper, the longest freeze, the
+            longest wait at a laser or a cup, the strongest pull of a whale's
+            gravity well. Each marble after meets it a little weaker. Nothing knows who is leading; being first is simply
+            what makes you meet it first.</li>
+        <li><b>Chaos is part of the course.</b> Sweeping white and grey holes
+            warp a marble about 3 seconds; cryo traps freeze for 2; bridges,
+            vaults, claws and reorgs hold or send back a moment. None of it
+            knows who is leading.</li>
+        <li><b>Knockouts are rare.</b> The Jump, the Edge, the Breach or a black
+            hole can take a marble out, at most two a race, so both paid places
+            always go to finishers.</li>
+        <li><b>Top two are paid.</b> 75% of the pool to the winner's backers,
+            25% to the runner-up's, each split in proportion to stake.</li>
+        <li><b>Provably fair.</b> The race is decided before betting opens.
+            Its seed's SHA-256 hash is shown while you bet, and the seed is
+            revealed at the lights so anyone can replay the race.</li>
+      </ol>
+      <p class="note">A parimutuel pool pays shares of a fixed pot rather than
+        fixed multiples, so a heavily backed marble pays less even when it
+        wins. Rake is 5%. All money here is demo money.</p>
+      <button id="helpClose" class="cta">Got it</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main2d.js"></script>
+</body>
+</html>

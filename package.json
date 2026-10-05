@@ -1,0 +1,15 @@
+{
+  "name": "marblerush",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Parimutuel marble racing. The authoritative race runs headless in Node; the browser replays it.",
+  "scripts": {
+    "dev": "MR_ROOT=\"$PWD\" python3 tools/serve.py",
+    "simulate": "node tools/simulate.js"
+  },
+  "dependencies": {
+    "cannon-es": "0.20.0",
+    "three": "0.169.0"
+  }
+}

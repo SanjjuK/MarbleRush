@@ -1,0 +1,1104 @@
+// main2d.js: Boot, phases, betting, and the render loop for the 2D game.
+//
+// THE RACE IS DECIDED BEFORE IT IS SHOWN.
+//
+// As soon as the round opens, betting.js publishes a commitment for the seed.
+// This module then runs the WHOLE race headlessly, from that seed, and keeps
+// the result. The animation that follows is a second run of the same
+// deterministic engine, so it reproduces the stored result step for step, and
+// settlement uses the stored result rather than whatever happened to be drawn.
+//
+// That is the flow the 3D build has never had, it simulated its own race for
+// display and settled from that, and it is the whole point of making the
+// engine deterministic. Moving it server-side later is then only a question of
+// WHERE `precompute()` runs, not of changing how the game works.
+//
+// If the displayed race ever disagrees with the stored one, that is a
+// determinism bug and it is reported loudly rather than hidden.
+
+import { makeRng } from '../../js/rng.js';
+import { MARBLE_DATA, MARBLE_DARK } from '../../js/racers.js';
+import { BettingManager, fmtAmount, fmtOdds, MIN_BET, RAKE, CURRENCY, PLACE_SHARES } from '../../js/betting.js';
+import { buildTrack } from './track2d.js';
+import { Engine2D, SIM_DT, runRace2D, MAX_OUT } from './engine2d.js';
+import { Renderer2D } from './render2d.js';
+import { detectServer, RemoteBetting } from './net2d.js';
+
+const $ = (id) => document.getElementById(id);
+
+/** A racer's coin icon for the HUD, matching the coins on the course. */
+const coin = (i) =>
+  `<span class="coin" style="--c:${MARBLE_DATA[i].hex};--d:${MARBLE_DARK[i]}"></span>`;
+const PHASE = { BETTING: 'betting', READY: 'ready', COUNTDOWN: 'countdown', RACING: 'racing', FINISHED: 'finished' };
+const STAKES = [10, 25, 50, 100];
+// A hard ceiling for a race that has somehow not finished, well clear of the
+// ~3.5 minute median and the slowest race measured (5 min 19s).
+const MAX_RACE_SECONDS = 480;
+
+/**
+ * How long the lobby stays open, in seconds.
+ *
+ * A hard stop, not a suggestion. When it expires anyone without a bet on the
+ * board is staked the minimum on whatever is least backed, everyone still
+ * un-readied is readied, and the gates go. One slow table cannot hold up the
+ * rest, which matters more here than it looks: the pool is only fair while
+ * everybody is betting into the same clock.
+ */
+const LOBBY_SECONDS = 30;
+
+// Local rounds by default. When the page is served by the round server,
+// `betting` is swapped for a live mirror of the server's pool (see net2d.js)
+// and every round is the server's: NET is true.
+let betting = new BettingManager();
+let NET = false;
+let netRound = null;          // the server's latest word on the current round
+let netStarted = 0;           // the round id whose race replay has started
+const mySecond = new Map(), srvSecond = new Map();   // drift checks
+
+let phase = PHASE.BETTING;
+let track, engine, renderer, result, raceRng;
+let countdown = 0, botTimer = 0, accumulator = 0, settleInfo = null, gridState = null;
+let readyIn = [];        // seconds until each other player readies up
+let readyCount = 0;
+let lobby = LOBBY_SECONDS;   // seconds left on the lobby clock
+let lobbyShown = -1;         // last whole second written to the DOM
+let autoNote = '';           // what the clock did on everyone's behalf
+let lastOdds = [];           // the tote's previous odds, for the move arrows
+
+/* ------------------------------ round setup ---------------------------- */
+
+// ?only=bowl,sprint pins the course, for looking at one block on the page
+// rather than reloading until the random draw offers it.
+const ONLY = (new URLSearchParams(location.search).get('only') || '')
+  .split(',').filter(Boolean);
+
+/** Build a course and an engine for `seed`. Same seed, same everything. */
+function buildFor(seed) {
+  const rng = makeRng(seed);
+  const t = buildTrack(rng, ONLY.length ? { only: ONLY } : {});
+  return { track: t, engine: new Engine2D({ track: t, rng, racers: MARBLE_DATA }), rng };
+}
+
+// ?seed=abc replays one exact race. LOCALHOST ONLY: the seed decides the
+// winner, so anywhere a real pool exists this would hand it to whoever types it.
+const DEV_SEED = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+  ? new URLSearchParams(location.search).get('seed') : null;
+
+function newRound() {
+  const seed = betting.newRound(DEV_SEED);
+
+  // The authoritative run. Its own engine, so the displayed one starts clean.
+  const pre = buildFor(seed);
+  result = runRace2D({ engine: pre.engine, maxSeconds: MAX_RACE_SECONDS });
+
+  // The one we will actually draw. Settle it exactly as the committed run did
+  // and keep that state: the betting phase is then free to keep the physics
+  // running for the look of it, because the race is restored to this snapshot
+  // the instant the gate lifts.
+  const show = buildFor(seed);
+  track = show.track;
+  engine = show.engine;
+  raceRng = show.rng;
+  engine.settle();
+  gridState = engine.snapshot();
+
+  resetRoundUI();
+}
+
+/** Everything a new round resets on screen, local or server. */
+function resetRoundUI() {
+  renderer = new Renderer2D($('board'), engine, MARBLE_DATA);
+  renderer.setCam(camMode);
+  ring = []; clips = []; pendingClips = []; liveCut = null; replayT = 0;
+  resetTower();
+  buildCourseMap();
+  lastOdds = [];
+  $('roundTag').textContent = `#${betting.round}`;
+  document.body.classList.remove('racing');
+  // The panels must be laid out before the renderer measures around them.
+  requestAnimationFrame(() => renderer.resize());
+  renderer.resize();
+  renderer.camY = 0;
+
+  setRaceLayout(false);
+  phase = PHASE.BETTING;
+  lobby = LOBBY_SECONDS;
+  lobbyShown = -1;
+  autoNote = '';
+  countdown = 0;
+  botTimer = 0.4;
+  accumulator = 0;
+  settleInfo = null;
+
+  $('commitment').textContent = (betting.commitment || '').slice(0, 16);
+  $('resultOverlay').hidden = true;
+  $('countdownOverlay').hidden = true;
+  $('phaseLabel').textContent = 'Betting open';
+  renderLobby();
+  renderTote();
+  renderStandings();
+  renderWallet();
+  renderFeed();
+  renderHistory();
+}
+
+/* ---------------------------- server rounds ---------------------------- */
+
+/**
+ * A round from the server. The COURSE is public, so it is built at once; the
+ * grid is drawn from the lanes the server published, at their nominal spots
+ * (the exact jitter belongs to the secret race seed). When the gates open the
+ * seed arrives and the engine is reset from it, which makes it, bit for bit,
+ * the engine the server ran.
+ */
+function onNetRound(r) {
+  netRound = r;
+  if (!track || r.id !== betting.shownRound) newNetRound(r);
+  if (r.phase === 'betting') {
+    if (phase !== PHASE.BETTING && phase !== PHASE.READY) phase = PHASE.BETTING;
+  } else if (r.phase === 'countdown') {
+    if (phase === PHASE.BETTING || phase === PHASE.READY) enterCountdown();
+  } else if (r.phase === 'racing' || r.phase === 'results') {
+    startNetRace(r);
+  }
+  renderTote(); renderFeed(); renderWallet();
+}
+
+function newNetRound(r) {
+  betting.shownRound = r.id;
+  result = null; settleInfo = null;
+  mySecond.clear(); srvSecond.clear();
+  track = buildTrack(makeRng(r.courseSeed), r.blocks ? { count: r.blocks } : {});
+  engine = new Engine2D({ track, rng: makeRng('display'), racers: MARBLE_DATA });
+  const g = track.grid;
+  for (const m of engine.marbles) {
+    const lane = r.lanes[m.index];
+    m.lane = lane;
+    m.x = g.x0 + lane * g.dx; m.y = g.y0 - (lane % 2) * g.stagger;
+    m.vx = 0; m.vy = 0; m.progress = m.y;
+  }
+  engine.settle();
+  gridState = null;
+  raceRng = null;
+  resetRoundUI();
+  $('nextRace').hidden = true;
+}
+
+/** Gates open: reset the engine from the revealed seed and catch up to the server. */
+function startNetRace(r) {
+  if (netStarted === r.id || !r.raceSeed) return;
+  netStarted = r.id;
+  engine.reset(makeRng(r.raceSeed));
+  engine.settle();
+  gridState = engine.snapshot();
+  if (phase !== PHASE.COUNTDOWN) { $('countdownOverlay').hidden = true; setRaceLayout(true); }
+  enterRacing();
+  // Joined late, or a slow tab: fast-forward to the server's moment, quietly.
+  const behind = Math.floor((betting.now() - r.raceAt) / 1000 / SIM_DT);
+  for (let i = 0; i < behind && !engine.allFinished; i++) { engine.step(true); timeLoops(); noteSecond(); }
+}
+
+/** Record where everyone is at each whole second, and compare with the server. */
+function noteSecond() {
+  if (engine.tick % 240) return;
+  const s = engine.tick / 240;
+  mySecond.set(s, engine.marbles.map(m => [+m.x.toFixed(3), +m.y.toFixed(3)]));
+  if (srvSecond.has(s)) checkSecond(s);
+}
+function onNetSync(d) {
+  if (!netRound || d.id !== netRound.id) return;
+  srvSecond.set(d.second, d.pos);
+  if (mySecond.has(d.second)) checkSecond(d.second);
+}
+function checkSecond(s) {
+  const a = JSON.stringify(mySecond.get(s)), b = JSON.stringify(srvSecond.get(s));
+  if (a === b) return;
+  // Should never happen: the engine is deterministic. Say so loudly and put
+  // the marbles where the server has them.
+  console.error(`[race] drifted from the server at ${s}s; snapping back`, { mine: mySecond.get(s), server: srvSecond.get(s) });
+  srvSecond.get(s).forEach(([x, y], i) => { engine.marbles[i].x = x; engine.marbles[i].y = y; });
+}
+
+function onNetSettled(d) {
+  if (netRound && d.id === netRound.id) renderWallet();
+}
+
+/* -------------------------------- phases ------------------------------- */
+
+/**
+ * Collapse or restore the betting furniture, then RE-MEASURE.
+ *
+ * The renderer frames the course into whatever the HUD leaves clear, so any
+ * change to the HUD has to be followed by a resize or the course keeps using
+ * the old safe area. Done on the next frame, after layout has settled.
+ */
+function setRaceLayout(on) {
+  document.body.classList.toggle('race-on', on);
+  requestAnimationFrame(() => renderer && renderer.resize());
+}
+
+/**
+ * The player has readied up; now wait for the rest of the table.
+ *
+ * The other backers ready in a stagger rather than all at once, because a
+ * lobby filling up one player at a time reads as other people being there.
+ * It is cosmetic and uses plain Math.random, nothing here touches the race,
+ * which was already decided from the seed when the round opened.
+ */
+function enterReady() {
+  if (phase !== PHASE.BETTING) return;
+  phase = PHASE.READY;
+  if (NET) { betting.sendReady(); renderTote(); setRaceLayout(true); $('phaseLabel').textContent = 'Waiting'; return; }
+  betting.revealAllBots();
+  readyCount = 1;                                   // the player
+  readyIn = betting.bots.map(() => 0.15 + Math.random() * 1.5).sort((a, b) => a - b);
+  renderTote();
+  setRaceLayout(true);
+  $('phaseLabel').textContent = 'Waiting';
+}
+
+/**
+ * The lobby clock has expired.
+ *
+ * Everyone without a bet on the board takes the fallback, the minimum stake on
+ * whatever is least backed, and then the whole table is readied whether or not
+ * it pressed READY. The gates go on time.
+ *
+ * None of this can reach the result. The race was decided from the seed when
+ * the round opened and the commitment was published at the same moment; the
+ * pool is only the money, and money is allowed to arrive right up to the bell.
+ */
+function closeLobby() {
+  if (NET) return;                     // the server's clock, not ours
+  if (phase !== PHASE.BETTING && phase !== PHASE.READY) return;
+  lobby = 0;
+
+  // Order matters. The backers who never got their money down go on first, so
+  // the player's fallback reads a board that already includes them and the two
+  // do not both pile onto the same marble.
+  const late = betting.autoBetPending();
+  const mine = betting.autoBetPlayer();
+
+  autoNote = mine
+    ? `Clock expired. ${fmtAmount(mine.amount, 0)} ${CURRENCY} auto-staked on ${MARBLE_DATA[mine.marble].name}`
+    : betting.placed ? 'Marbles ready'
+    : 'Clock expired with no bet down';
+
+  readyCount = betting.bots.length + 1;
+  if (late.length) renderFeed();
+  renderWallet();
+  enterCountdown();
+}
+
+function enterCountdown() {
+  if (phase !== PHASE.READY && phase !== PHASE.BETTING) return;
+  phase = PHASE.COUNTDOWN;
+  countdown = 3.0;
+  betting.revealAllBots();
+  renderTote();
+  setRaceLayout(true);
+  $('countdownOverlay').hidden = false;
+  $('countdownNote').textContent = autoNote || 'Marbles ready';
+  // Hand the topbar clock back to the race, or it sits on the last lobby
+  // reading right through the countdown.
+  $('raceClock').textContent = '0.00s';
+  $('phaseLabel').textContent = 'All ready';
+  renderLobby();
+}
+
+function enterRacing() {
+  phase = PHASE.RACING;
+  accumulator = 0;
+  // Start from the committed state, not from wherever the idle physics of the
+  // betting phase happened to leave the field. Without this the race on screen
+  // is a DIFFERENT race from the one the commitment covers, which is how a
+  // pool gets settled on a marble the viewer never saw win.
+  if (gridState) engine.restore(gridState);
+  engine.openGate();
+  $('countdownOverlay').hidden = true;
+  $('banner').hidden = true;
+  $('phaseLabel').textContent = 'Racing';
+  document.body.classList.add('racing');
+}
+
+function enterFinished() {
+  phase = PHASE.FINISHED;
+  $('phaseLabel').textContent = 'Race over';
+  document.body.classList.remove('racing');
+
+  // The full ranking, knockouts included, because that is what the committed
+  // run's finishOrder is and what settlement pays on.
+  const shown = engine.standings().map(m => m.index);
+
+
+  // Self-check. The drawn race and the committed race come from one seed
+  // through one deterministic engine, so they must agree. If they ever do not,
+  // the result is still settled from the COMMITTED run, that is the one the
+  // commitment hash covers, but say so loudly, because it means the engine
+  // has picked up a non-deterministic input.
+  if (shown.join(',') !== result.finishOrder.join(',')) {
+    console.error('[race] displayed order disagrees with the committed run.',
+                  { shown, committed: result.finishOrder, seed: betting.seed });
+  }
+
+  settleInfo = NET ? betting.settle() : betting.settle(result.finishOrder);
+  showResult();
+  renderWallet();
+  renderHistory();
+}
+
+/* ------------------------------ course map ----------------------------- */
+
+const EVENT_KIND = {
+  blackhole: 'ko', jump: 'ko', edge: 'ko', breach: 'ko',
+  whitehole: 'warp', greyhole: 'grey', gatehouse: 'gate', mempool: 'pool',
+};
+
+/** Lay out the course map for this round: event markers and five coins. */
+function buildCourseMap() {
+  const y0 = track.sections[0].y0, span = track.finishY - y0;
+  $('cmMarks').innerHTML = track.sections
+    .filter(s => EVENT_KIND[s.id])
+    .map(s => `<i class="${EVENT_KIND[s.id]}" title="${s.name}" style="left:${(((s.y0 + s.y1) / 2 - y0) / span * 100).toFixed(2)}%"></i>`)
+    .join('');
+  $('cmDots').innerHTML = MARBLE_DATA.map((_, i) => `<span id="cm${i}">${coin(i)}</span>`).join('');
+}
+
+/** Move each coin along the map. Cheap: five style writes a frame. */
+function renderCourseMap() {
+  const y0 = track.sections[0].y0, span = track.finishY - y0;
+  for (const m of engine.marbles) {
+    const el = $('cm' + m.index);
+    if (!el) continue;
+    const f = m.finished ? 1 : Math.max(0, Math.min(1, (m.progress - y0) / span));
+    el.style.left = (f * 100).toFixed(2) + '%';
+    el.classList.toggle('out', m.out);
+  }
+}
+
+/* ----------------------------- race events ----------------------------- */
+
+let bannerTimer = 0;
+
+/** What each hazard DID, for the banner. Keyed by the hazard's cause name. */
+const OUT_WORDS = {
+  'Black hole': 'swallowed by the black hole',
+  'Jump': 'came up short at The Jump',
+  'Edge': 'flew off The Edge',
+  'Breach': 'went through The Breach and off the track',
+};
+
+/**
+ * Something happened on the course that a bettor needs to KNOW, not just see.
+ *
+ * A knockout decides money. It can happen off the main shot while the camera
+ * is on the pack, so it is announced in words as well as drawn.
+ */
+/* ------------------------ knockout cam and replay ----------------------- */
+
+// The last few seconds of the race, every frame, so a knockout can be shown
+// again. A clip is taken 1.2s AFTER the knockout (so it includes the fall),
+// reaching back 3.5s before it.
+const RING_TICKS = 6 * 240;
+let ring = [], clips = [], pendingClips = [], liveCut = null, replayT = 0;
+
+function recordFrame() {
+  ring.push({ tick: engine.tick, outCount: engine.outCount,
+    marbles: engine.marbles.map(m => ({ index: m.index, data: m.data, x: m.x, y: m.y, r: m.r, out: m.out,
+      outX: m.outX, outY: m.outY, outBy: m.outBy, frozen: m.frozen, frozenBy: m.frozenBy, held: m.held, finished: m.finished, spin: 0 })) });
+  while (ring.length && ring[0].tick < engine.tick - RING_TICKS) ring.shift();
+  for (let i = pendingClips.length - 1; i >= 0; i--) {
+    const p = pendingClips[i];
+    if (engine.tick < p.until) continue;
+    clips.push({ ...p, frames: ring.filter(f => f.tick >= p.tickOut - 3.5 * 240) });
+    pendingClips.splice(i, 1);
+  }
+}
+
+/** The side cam: live knockout cut, else the leader. */
+function drawSideCam() {
+  const cam = $('leaderCam');
+  if (!cam || !cam.clientWidth) return;
+  const panel = cam.closest('.panel');
+  if (liveCut && liveCut.until > performance.now()) {
+    const m = engine.marbles[liveCut.index];
+    renderer.drawInset(cam, m.out ? { x: m.outX, y: m.outY } : m);
+    $('camName').textContent = `LIVE · ${MARBLE_DATA[liveCut.index].name} out`;
+    panel?.classList.add('live');
+    return;
+  }
+  panel?.classList.remove('live');
+  const lead = engine.standings()[0];
+  renderer.drawInset(cam, lead);
+  $('camName').textContent = lead ? MARBLE_DATA[lead.index].name : '-';
+}
+
+/** Play the knockout clips on the result card, slow motion, round and round. */
+function drawReplay(dt) {
+  const box = $('koReplay');
+  if (!clips.length || $('resultOverlay').hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  replayT += dt * 0.5;                                   // half speed
+  const lens = clips.map(c => c.frames.length / 60 + 0.8);
+  const total = lens.reduce((a, b) => a + b, 0);
+  let t = replayT % total, k = 0;
+  while (t > lens[k]) { t -= lens[k]; k++; }
+  const c = clips[k];
+  const f = c.frames[Math.min(c.frames.length - 1, Math.floor(t * 60))];
+  const outAt = c.frames.findIndex(x => x.marbles[c.index].out);
+  const since = outAt >= 0 ? (Math.floor(t * 60) - outAt) / 60 : -1;
+  const m = f.marbles[c.index];
+  const gone = since >= 0 ? [{ index: c.index, x: m.outX, y: m.outY, hx: m.outX, hy: m.outY, t: since }] : [];
+  renderer.drawReplay($('koCanvas'), f, c.index, gone);
+  $('koLabel').textContent = `${MARBLE_DATA[c.index].name} · ${c.cause}${clips.length > 1 ? `  (${k + 1}/${clips.length})` : ''}`;
+}
+
+/* ------------------------------- cameras ------------------------------- */
+
+function buildCamBar() {
+  $('camCoins').innerHTML = MARBLE_DATA.map((d, i) => `<button data-cam="${i}" title="Follow ${d.name}">${coin(i)}</button>`).join('');
+  for (const b of document.querySelectorAll('#camBar button')) {
+    b.onclick = () => {
+      const v = b.dataset.cam;
+      camMode = /^\d$/.test(v) ? +v : v;
+      if (renderer) renderer.setCam(camMode);
+      for (const x of document.querySelectorAll('#camBar button')) x.classList.toggle('on', x === b);
+    };
+  }
+}
+let camMode = 'auto';
+
+function onRaceEvent(ev) {
+  renderer.noteEvent(ev);
+  if (ev.type === 'out') {
+    pendingClips.push({ index: ev.index, cause: OUT_WORDS[ev.cause] || ev.cause, tickOut: engine.tick, until: engine.tick + Math.round(1.2 * 240) });
+    liveCut = { index: ev.index, until: performance.now() + 3000 };
+  }
+  if (ev.type === 'warp') {
+    renderer.onWarp(ev);
+    flags[ev.index].warp = performance.now() + 2000;
+    const d = MARBLE_DATA[ev.index];
+    const n = Math.abs(ev.secs);
+    announce(
+      `${coin(MARBLE_DATA.indexOf(d))}` +
+      `<span class="msg"><b>${d.name}</b> ` + (ev.dir > 0
+        ? `aped into the ${ev.kind} hole, about ${n}s <b class="up">ahead</b>`
+        : `got rugged by the grey hole, about ${n}s <b class="down">back</b>`) +
+      `</span>`,
+      ev.dir > 0 ? 'warp' : 'back');
+    return;
+  }
+  // The crypto machines, announced in the house voice.
+  const say = {
+    freeze: (ev) => [`funds <b class="down">frozen</b> for ${ev.secs}s (compliance review)`, 'back'],
+    brake: () => [`paid the <b class="down">gas fee</b> at the speed camera`, 'back'],
+    grab: (ev) => [ev.diamond ? `💎 diamond hands, held ${ev.secs}s` : `🧻 paper hands, let go after ${ev.secs}s`, 'back'],
+    reorg: () => [`<b class="down">reorged</b>, sent back a block`, 'back'],
+    load: (ev) => ev.kind === 'bridge' ? [`bridging chains, ${ev.secs}s to confirm`, 'bridge']
+      : ev.kind === 'vault' ? [`staked in the vault, paying out in ${ev.secs}s`, 'stake']
+      : ev.kind === 'rocket' ? [`🚀 on the launchpad, T-${ev.secs}s`, 'launch'] : null,
+  };
+  if (say[ev.type]) {
+    const r = say[ev.type](ev);
+    if (!r) return;
+    announce(`${coin(ev.index)}<span class="msg"><b>${MARBLE_DATA[ev.index].name}</b> ${r[0]}</span>`, r[1]);
+    return;
+  }
+  if (ev.type !== 'out') return;
+  const d = MARBLE_DATA[ev.index];
+  const last = engine.outCount >= MAX_OUT;
+  announce(
+    `${coin(MARBLE_DATA.indexOf(d))}` +
+    `<span class="msg"><b class="down">REKT.</b> <b>${d.name}</b> ${OUT_WORDS[ev.cause] || 'is out'}</span>` +
+    (last ? `<small>Hazards now disarmed</small>` : ''),
+    'out');
+}
+
+function announce(html, kind = '') {
+  const el = $('banner');
+  el.className = `banner ${kind}`;
+  el.innerHTML = html;
+  el.hidden = false;
+  // Restart the entrance animation even when one banner replaces another.
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  bannerTimer = 3.2;
+}
+
+/* --------------------------------- UI ---------------------------------- */
+
+/** m:ss, for anything counting down rather than up. */
+function fmtClock(secs) {
+  const s = Math.max(0, Math.ceil(secs));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The lobby clock, in the tote board and in the topbar.
+ *
+ * Called every frame, so it writes only when the displayed SECOND changes. The
+ * bar is scaled with a transform rather than a width, which keeps the one
+ * thing that does update smoothly off the layout path.
+ */
+function renderLobby() {
+  const box = $('lobby');
+  const live = phase === PHASE.BETTING || phase === PHASE.READY;
+  const left = live ? Math.max(0, lobby) : 0;
+
+  $('lobbyFill').style.transform = `scaleX(${left / LOBBY_SECONDS})`;
+  box.classList.toggle('soon', live && left <= 10);
+  box.classList.toggle('now', live && left <= 5);
+
+  const secs = Math.ceil(left);
+  if (!live || secs === lobbyShown) return;
+  lobbyShown = secs;
+
+  $('lobbyClock').textContent = fmtClock(left);
+  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open in' : 'Betting closes in';
+  // The topbar clock counts race seconds once there is a race. Until then it
+  // has nothing to say, so it carries the same countdown: on a narrow window
+  // the tote is a strip at the bottom and this is the copy you can see.
+  $('raceClock').textContent = fmtClock(left);
+  if (phase === PHASE.READY) renderBetButton();
+}
+
+function renderWallet() {
+  $('balance').textContent = `${fmtAmount(betting.balance)} ${CURRENCY}`;
+  renderRecord();
+}
+
+/** Live bets: who backed what, most recent first. */
+function renderFeed() {
+  const ul = $('feed');
+  if (!ul) return;
+  const rows = betting.bots.slice(-7).reverse();
+  $('feedCount').textContent = `${betting.bots.length}`;
+  ul.innerHTML = rows.map(b =>
+    `<li class="${b.mine ? 'mine' : ''}">${coin(b.marble)}` +
+    `<span class="who">${b.handle}${b.auto ? ' <em>auto</em>' : ''}</span>` +
+    `<span class="amt">${fmtAmount(b.amount, 0)}</span></li>`).join('')
+    || '<li><span class="who">No bets yet</span></li>';
+}
+
+function renderRecord() {
+  const dl = $('record');
+  if (!dl) return;
+  const s = betting.stats;
+  const net = betting.netProfit;
+  dl.innerHTML =
+    `<dt>Races</dt><dd>${s.races}</dd>` +
+    `<dt>Wins</dt><dd>${s.wins}</dd>` +
+    `<dt>Strike rate</dt><dd>${(betting.winRate * 100).toFixed(0)}%</dd>` +
+    `<dt>Net</dt><dd class="${net >= 0 ? 'good' : 'bad'}">` +
+    `${net >= 0 ? '+' : '−'}${fmtAmount(Math.abs(net))}</dd>` +
+    `<dt>Streak</dt><dd>${s.streak}</dd>`;
+}
+
+/**
+ * Recent winners.
+ *
+ * A row has to say three things or it is just a row of coloured dots: WHICH
+ * marble won, WHICH race it was, and what the round did to your wallet. The
+ * last one is signed off the PROFIT rather than the finishing position, because
+ * a marble that places while carrying most of the pool can still pay back less
+ * than its stake, and "2nd" on its own would read as a win.
+ */
+function renderHistory() {
+  const ul = $('history');
+  if (!ul) return;
+  const ORD = ['1st', '2nd', '3rd', '4th', '5th'];
+
+  ul.innerHTML = betting.history.slice(0, 6).map(h => {
+    const d = MARBLE_DATA[h.winner];
+    let tag = 'No bet', cls = 'none';
+
+    if (h.void) {
+      tag = 'Void'; cls = 'none';
+    } else if (h.stake > 0) {
+      const profit = h.payout - h.stake;
+      const up = profit >= 0;
+      if (h.place >= 0) {
+        tag = `${ORD[h.place]} ${up ? '+' : '−'}${fmtAmount(Math.abs(profit), 0)}`;
+        cls = up ? 'win' : 'lose';
+      } else {
+        tag = `−${fmtAmount(h.stake, 0)}`;
+        cls = 'lose';
+      }
+    }
+
+    return `<li>${coin(h.winner)}` +
+           `<span class="who"><b>${d.name}</b> <i>race ${h.round}</i></span>` +
+           `<span class="amt ${cls}">${tag}</span></li>`;
+  }).join('') ||
+    '<li class="empty"><span class="who">No races yet. Back a marble and this fills up.</span></li>';
+}
+
+function renderTote() {
+  const ul = $('tote');
+  const locked = phase !== PHASE.BETTING || betting.placed;
+  ul.innerHTML = '';
+
+  const total = betting.totalPool;
+  MARBLE_DATA.forEach((d, i) => {
+    const li = document.createElement('li');
+    li.className = (betting.selected === i ? 'sel ' : '') + (locked ? 'locked' : '');
+    li.style.setProperty('--c', d.hex);
+    const on = betting.pools[i];
+    const o = on > 0 ? betting.oddsFor(i, 0) : null;
+    const odds = o !== null ? fmtOdds(o) : null;
+    const pl = on > 0 ? fmtOdds(betting.oddsFor(i, 1)) : null;
+    // Which way the price moved since the board last drew, like a ticker.
+    // Longer odds (more of the pool per unit staked here) show as UP.
+    const prev = lastOdds[i];
+    const move = o === null || prev === undefined || prev === null || Math.abs(o - prev) < 1e-9 ? ''
+               : o > prev ? 'up' : 'down';
+    lastOdds[i] = o;
+    const share = total > 0 ? (on / total) * 100 : 0;
+    li.innerHTML =
+      `<span class="share" style="width:${share.toFixed(1)}%"></span>` +
+      coin(i) +
+      `<span class="nm">${d.name}<span class="tick">$${d.ticker}</span><span class="sub">` +
+      `${on > 0 ? `${fmtAmount(on)} · ${share.toFixed(0)}% of pool · ${betting.backers[i]} backer${betting.backers[i] === 1 ? '' : 's'}`
+                : 'No bets yet'}</span></span>` +
+      `<span class="odds ${odds ? move : 'none'}">${odds || '-'}` +
+      `${move ? `<span class="arrow">${move === 'up' ? '▲' : '▼'}</span>` : ''}` +
+      `${pl ? `<span class="sub">2nd ${pl}</span>` : ''}</span>`;
+    if (!locked) li.onclick = () => { betting.select(i); renderTote(); renderBetButton(); };
+    ul.appendChild(li);
+  });
+
+  $('poolTotal').textContent = fmtAmount(betting.totalPool);
+  $('rakePct').textContent = `${(RAKE * 100).toFixed(0)}%`;
+  $('places').textContent = `Top ${PLACE_SHARES.length} paid`;
+  renderStakes();
+  renderBetButton();
+}
+
+function renderStakes() {
+  const box = $('stakes');
+  box.innerHTML = '';
+  if (phase !== PHASE.BETTING || betting.placed) return;
+  for (const v of STAKES) {
+    const b = document.createElement('button');
+    b.textContent = v;
+    if (betting.stake === v) b.className = 'on';
+    b.disabled = !betting.canAfford(v);
+    b.onclick = () => { betting.setStake(v); renderTote(); };
+    box.appendChild(b);
+  }
+}
+
+function renderBetButton() {
+  const btn = $('placeBet');
+  if (phase === PHASE.READY) {
+    btn.disabled = true;
+    btn.textContent = NET
+      ? `Waiting… ${betting.ready}/${betting.players} ready · ${fmtClock(lobby)}`
+      : `Waiting… ${readyCount}/${betting.bots.length + 1} ready · ${fmtClock(lobby)}`;
+    return;
+  }
+  if (phase !== PHASE.BETTING) { btn.disabled = true; btn.textContent = 'Betting closed'; return; }
+  if (betting.placed) {
+    btn.disabled = false;
+    btn.textContent = 'READY';
+    btn.onclick = enterReady;
+    return;
+  }
+  // The empty-wallet check comes FIRST. Behind "select a marble" it never
+  // showed, because picking a marble you cannot back is not the next step.
+  if (betting.balance < MIN_BET) {
+    btn.disabled = false;
+    btn.textContent = 'Top up demo wallet';
+    btn.onclick = () => { betting.topUp(); renderWallet(); renderTote(); };
+    return;
+  }
+  if (betting.selected < 0) { btn.disabled = true; btn.textContent = 'Select a marble'; return; }
+  if (!betting.canAfford(betting.stake)) {
+    btn.disabled = true;
+    btn.textContent = 'Stake too high';
+    return;
+  }
+  const q = betting.quote(betting.selected, betting.stake);
+  btn.disabled = false;
+  btn.textContent = `Bet ${betting.stake} → ${fmtAmount(q.payout)}`;
+  btn.onclick = () => { if (betting.placeBet()) { renderTote(); renderWallet(); } };
+}
+
+/* ------------------------- the timing tower -------------------------- */
+
+// GAP TO THE LEADER = how long ago the front of the race was where this
+// marble is now. The front (the furthest anyone has got) only moves forward,
+// so it is recorded as a list of (depth, time) and looked up by each
+// marble's own depth. Tried first as F1 timing loops at section boundaries:
+// a marble past one more loop could show a BIGGER gap than one behind it,
+// and the tower read out of order. This version cannot.
+let frontY = [], frontT = [], flags = [];
+let towerRows = null, towerOrder = [];
+
+function resetTower() {
+  frontY = []; frontT = [];
+  flags = MARBLE_DATA.map(() => ({ warp: 0 }));
+  const ol = $('standings');
+  ol.innerHTML = '';
+  towerRows = MARBLE_DATA.map((d, i) => {
+    const li = document.createElement('li');
+    li.style.setProperty('--c', d.hex);
+    li.innerHTML = `<span class="pos"></span><span class="stripe"></span>${coin(i)}<span class="nm">${d.name}</span><span class="gap"></span>`;
+    ol.appendChild(li);
+    return li;
+  });
+  towerOrder = [];
+}
+
+/** Advance the front of the race. Call after every racing tick. */
+function timeLoops() {
+  let p = -Infinity;
+  for (const m of engine.marbles) if (!m.out) p = Math.max(p, m.progress);
+  if (!frontY.length || p > frontY[frontY.length - 1] + 2) { frontY.push(p); frontT.push(engine.time); }
+}
+
+/** When the front of the race first reached depth y. */
+function frontAt(y) {
+  let lo = 0, hi = frontY.length - 1;
+  if (hi < 0 || y > frontY[hi]) return engine.time;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (frontY[mid] >= y) hi = mid; else lo = mid + 1; }
+  return frontT[lo];
+}
+
+function gapText(m, lead) {
+  if (m.out) return ['<span class="flag out">OUT</span>', ''];
+  if (m === lead) return [m.finished ? `${m.finishTime.toFixed(2)}` : 'LEADER', 'lead'];
+  if (m.finished) return [`+${(m.finishTime - lead.finishTime).toFixed(3)}`, ''];
+  return [`+${Math.max(0, engine.time - frontAt(m.progress)).toFixed(3)}`, ''];
+}
+
+function renderStandings() {
+  if (!towerRows) return;
+  const order = engine.standings();
+  const lead = order[0];
+  const preRace = phase === PHASE.BETTING || phase === PHASE.READY || phase === PHASE.COUNTDOWN;
+  const h = towerRows[0].offsetHeight + 3;
+  $('standings').style.height = `${h * order.length - 3}px`;
+  order.forEach((m, i) => {
+    const li = towerRows[m.index];
+    const was = towerOrder.indexOf(m.index);
+    if (was >= 0 && was !== i && !preRace) {
+      li.classList.remove('gain', 'loss'); void li.offsetWidth;
+      li.classList.add(i < was ? 'gain' : 'loss');
+    }
+    li.style.transform = `translateY(${i * h}px)`;
+    li.querySelector('.pos').textContent = i + 1;
+    li.classList.toggle('out', m.out);
+    li.classList.toggle('p1', i === 0);
+    let [txt, cls] = preRace ? ['', ''] : gapText(m, lead);
+    if (!preRace && !m.out) {
+      if (m.frozen && engine.tick < m.frozen) txt = `<span class="flag ice">${m.frozenBy === 'grab' ? 'CLAW' : 'ICE'}</span>`;
+      else if (m.held) txt = `<span class="flag warp">${engine.track.cannons[m.held.cannon]?.kind === 'bridge' ? 'BRIDGE' : 'LAUNCH'}</span>`;
+      else if (flags[m.index].warp > performance.now()) txt = '<span class="flag warp">WARP</span>';
+    }
+    const g = li.querySelector('.gap');
+    if (g.innerHTML !== txt) g.innerHTML = txt;
+    g.className = `gap ${cls}`;
+  });
+  towerOrder = order.map(m => m.index);
+
+  const band = track.sections.find(s => lead && lead.y >= s.y0 && lead.y < s.y1);
+  const name = preRace ? 'Starting grid'
+    : lead && lead.y > track.finishY ? 'Finish' : (band ? band.name : 'Run-in');
+  if ($('sectionName').textContent !== name) $('sectionName').textContent = name;
+}
+
+/* ------------------------------ start lights ---------------------------- */
+
+function renderGantry() {
+  const lamps = $('gantry').children;
+  const on = Math.max(0, Math.min(5, Math.ceil((3 - countdown) / 0.55)));
+  for (let i = 0; i < 5; i++) lamps[i].classList.toggle('on', i < on && countdown > 0.15);
+  $('gantry').classList.toggle('go', countdown <= 0.15);
+}
+
+/* -------------------------------- confetti ------------------------------ */
+
+let confetti = [];
+function launchConfetti() {
+  const c = $('confetti'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+  const cols = ['#f0cd7c', '#43c98b', '#ffffff', '#d6b25a', '#9fe3ff', ...MARBLE_DATA.map(d => d.hex)];
+  for (let i = 0; i < 180; i++) {
+    confetti.push({ x: innerWidth / 2 + (Math.random() - 0.5) * 120, y: innerHeight * 0.42,
+      vx: (Math.random() - 0.5) * 900, vy: -300 - Math.random() * 700, r: Math.random() * 6.28,
+      vr: (Math.random() - 0.5) * 12, w: 5 + Math.random() * 6, h: 8 + Math.random() * 8,
+      c: cols[i % cols.length], life: 2.6 + Math.random() * 1.2 });
+  }
+}
+function drawConfetti(dt) {
+  if (!confetti.length) return;
+  const c = $('confetti'), g = c.getContext('2d'), dpr = c.width / innerWidth;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, innerWidth, innerHeight);
+  for (const p of confetti) {
+    p.life -= dt; p.vy += 900 * dt; p.vx *= 0.99; p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt;
+    g.save(); g.translate(p.x, p.y); g.rotate(p.r);
+    g.globalAlpha = Math.max(0, Math.min(1, p.life));
+    g.fillStyle = p.c; g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 1.7)));
+    g.restore();
+  }
+  confetti = confetti.filter(p => p.life > 0 && p.y < innerHeight + 40);
+  if (!confetti.length) g.clearRect(0, 0, innerWidth, innerHeight);
+}
+
+function showResult() {
+  const win = MARBLE_DATA[result.finishOrder[0]];
+  const wi = result.finishOrder[0];
+  $('winSwatch').className = 'coin';
+  $('winSwatch').style.cssText = `--c:${win.hex};--d:${MARBLE_DARK[wi]};width:22px;height:22px`;
+  $('winName').textContent = win.name;
+
+  // Times come from the COMMITTED run, like the order does. Reading them off
+  // the live engine mixed two runs together and printed a finishing order
+  // whose times were not even in ascending sequence.
+  $('winTime').textContent = `${result.times[result.finishOrder[0]].toFixed(2)}s`;
+
+  // The podium: 2nd, 1st, 3rd, like the real thing.
+  const top3 = result.finishOrder.filter(i => !result.eliminated.includes(i)).slice(0, 3);
+  $('podium').innerHTML = [1, 0, 2].filter(k => top3[k] !== undefined).map(k =>
+    `<div class="step p${k + 1}">${coin(top3[k])}<span class="nm">${MARBLE_DATA[top3[k]].name}</span><div class="blk">${k + 1}</div></div>`).join('');
+
+  const p = $('payout');
+  const ORD = ['1st', '2nd', '3rd', '4th', '5th'];
+  if (settleInfo.void) {
+    p.className = 'payout'; p.textContent = 'Round void, stake returned';
+  } else if (settleInfo.place >= 0) {
+    // Paid, whether it won or merely placed. Sign the figure off the PROFIT,
+    // not the position: a placed marble carrying most of the pool can still
+    // pay back less than its stake, and saying otherwise would be a lie.
+    const up = settleInfo.profit >= 0;
+    p.className = `payout ${up ? 'win' : 'lose'}`;
+    p.textContent = (up ? 'WAGMI · ' : '') +
+      `${ORD[settleInfo.place]} · ${up ? '+' : '−'}${fmtAmount(Math.abs(settleInfo.profit))} ` +
+      `${CURRENCY} at ${fmtOdds(settleInfo.odds)}`;
+  } else if (settleInfo.backed >= 0) {
+    p.className = 'payout lose';
+    const ko = result.eliminated.includes(settleInfo.backed);
+    p.textContent = `−${fmtAmount(settleInfo.stake)} ${CURRENCY} on ${MARBLE_DATA[settleInfo.backed].name}` +
+                    (ko ? ', knocked out' : '');
+  } else { p.className = 'payout lose'; p.textContent = 'No bet placed'; }
+
+  const ol = $('finalOrder');
+  ol.innerHTML = '';
+  result.finishOrder.forEach((idx, i) => {
+    const d = MARBLE_DATA[idx];
+    const li = document.createElement('li');
+    const ko = result.eliminated.includes(idx);
+    li.className = ko ? 'out' : i < PLACE_SHARES.length ? 'paid' : '';
+    li.innerHTML =
+      `<span class="pos">${i + 1}</span>` +
+      `${coin(MARBLE_DATA.indexOf(d))}` +
+      `<span class="nm">${d.name}</span>` +
+      `<span class="ft">${ko ? 'OUT' : result.times[idx].toFixed(2) + 's'}</span>`;
+    ol.appendChild(li);
+  });
+
+  // A burst of coins when the player's backing paid out at a profit, the
+  // payout counting up, and confetti across the whole screen.
+  const card = document.querySelector('#resultOverlay .card');
+  const won = !settleInfo.void && settleInfo.place >= 0 && settleInfo.profit > 0;
+  card.classList.toggle('won', won);
+  if (won) {
+    const full = p.textContent, target = settleInfo.profit, t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / 1300), e = 1 - Math.pow(1 - k, 3);
+      p.textContent = full.replace(/\+[\d,.]+/, '+' + fmtAmount(target * e));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    launchConfetti();
+  }
+  $('burst').innerHTML = won ? Array.from({ length: 16 }, (_, k) => {
+    const a = (k / 16) * Math.PI * 2, r = 110 + (k % 3) * 30;
+    return `<i style="--dx:${(Math.cos(a) * r).toFixed(0)}px;--dy:${(Math.sin(a) * r - 40).toFixed(0)}px;animation-delay:${(k % 4) * 40}ms"></i>`;
+  }).join('') : '';
+
+  $('resultOverlay').hidden = false;
+}
+
+/* ------------------------------ the loop ------------------------------- */
+
+let last = performance.now();
+
+let paused = false;          // debug only: __mr2d.pause(), to inspect a frame
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.1);
+  last = now;
+  if (paused || !engine) { requestAnimationFrame(frame); return; }
+
+  // The lobby clock runs through BOTH pre-race phases, so a table that readies
+  // slowly is on the same hard stop as one that bets slowly. On a server round
+  // it is the server's clock, read, not counted.
+  if (NET && netRound) {
+    lobby = Math.max(0, (netRound.closesAt - betting.now()) / 1000);
+    if (phase === PHASE.COUNTDOWN) countdown = Math.max(0.01, (netRound.raceAt - betting.now()) / 1000);
+  } else if (phase === PHASE.BETTING || phase === PHASE.READY) {
+    lobby -= dt;
+    if (lobby <= 0) closeLobby();
+  }
+
+  if (phase === PHASE.BETTING && NET) {
+    engine.step(false);
+  } else if (phase === PHASE.READY && NET) {
+    engine.step(false);
+  } else if (phase === PHASE.BETTING) {
+    botTimer -= dt;
+    if (botTimer <= 0 && betting.pendingBots.length) {
+      betting.revealBot();
+      renderTote();
+      renderFeed();
+      botTimer = 0.4 + Math.random() * 0.9;
+    }
+    engine.step(false);                      // let the field settle on the gate
+  } else if (phase === PHASE.READY) {
+    // Tick the other backers in, then start the countdown once the table is
+    // full. Physics keeps running with racing=false: the field is settled and
+    // this cannot move it anywhere the committed run did not go, because the
+    // gate snapshot is restored the moment it lifts.
+    let changed = false;
+    for (let i = 0; i < readyIn.length; i++) {
+      if (readyIn[i] <= 0) continue;
+      readyIn[i] -= dt;
+      if (readyIn[i] <= 0) { readyCount++; changed = true; }
+    }
+    if (changed) renderBetButton();
+    engine.step(false);
+    if (readyCount >= betting.bots.length + 1) enterCountdown();
+  } else if (phase === PHASE.COUNTDOWN) {
+    if (!NET) countdown -= dt;
+    $('countdownValue').textContent = Math.max(1, Math.ceil(countdown));
+    renderGantry();
+    engine.step(false);
+    if (countdown <= 0 && !NET) enterRacing();
+  } else if (phase === PHASE.RACING) {
+    // Fixed-step accumulator. The engine must never see a frame delta, or the
+    // race stops being reproducible and the commitment means nothing.
+    //
+    // On a server round the replay is LOCKED to the server's clock instead:
+    // however long this tab was hidden or throttled, it steps until it is at
+    // the tick the server is at, so every viewer is watching the same moment.
+    // Events from a long catch-up are not announced (they are old news).
+    if (NET && netRound) {
+      const want = Math.floor((betting.now() - netRound.raceAt) / 1000 / SIM_DT);
+      const behind = want - engine.tick;
+      if (behind > 240) {
+        for (let i = 0; i < Math.min(behind, 240 * 60) && !engine.allFinished; i++) { engine.step(true); timeLoops(); noteSecond(); }
+        accumulator = 0;
+      } else accumulator = Math.max(0, behind) * SIM_DT + (accumulator % SIM_DT);
+    } else accumulator += dt;
+    let steps = 0;
+    while (accumulator >= SIM_DT && steps < 600) {
+      engine.step(true);
+      // Events are per TICK and a frame runs several, so read them here or
+      // most of them are overwritten before the frame ever sees them.
+      for (const ev of engine.events) onRaceEvent(ev);
+      timeLoops();
+      if (NET) noteSecond();
+      accumulator -= SIM_DT;
+      steps++;
+    }
+    if (accumulator > SIM_DT * 600) accumulator = 0;
+
+    recordFrame();
+    $('raceClock').textContent = `${engine.time.toFixed(2)}s`;
+    if (engine.allFinished || engine.time > MAX_RACE_SECONDS) {
+      // A server round is over when the SERVER says so and has paid out; the
+      // field rolls on into the basin until then.
+      if (!NET) enterFinished();
+      else if (netRound && netRound.phase === 'results' && betting.settled && betting.settled.id === netRound.id) {
+        result = netRound.result;
+        enterFinished();
+      }
+    }
+  } else {
+    engine.step(false);
+  }
+
+  renderLobby();
+  if (bannerTimer > 0) {
+    bannerTimer -= dt;
+    if (bannerTimer <= 0) $('banner').hidden = true;
+  }
+  renderStandings();
+  renderCourseMap();
+  renderer.update(dt, phase);
+  renderer.draw(phase);
+
+  // Leader cam. The main shot follows the PACK, so the leader leaves the frame
+  // once the field strings out; this puts it back without compromising the
+  // main view. Only worth drawing when there is a race to follow.
+  drawSideCam();
+  drawReplay(dt);
+  drawConfetti(dt);
+  if (NET && netRound && phase === PHASE.FINISHED) {
+    const secs = Math.max(0, Math.ceil((netRound.nextAt - betting.now()) / 1000));
+    const t = `Next race opens in ${secs}s`;
+    if ($('nextNote').textContent !== t) $('nextNote').textContent = t;
+  } else if ($('nextNote').textContent) $('nextNote').textContent = '';
+  const why = phase === PHASE.RACING ? renderer.camWhy : '';
+  const who = renderer.camSubject && phase === PHASE.RACING && (camMode === 'auto' ? renderer.camWhy && renderer.camWhy !== 'pack' : true)
+    ? MARBLE_DATA[renderer.camSubject.index].name + (why && why !== 'pack' ? ' · ' + why : '') : why;
+  if ($('camWhy').textContent !== (who || '')) $('camWhy').textContent = who || '';
+  requestAnimationFrame(frame);
+}
+
+/* -------------------------------- boot --------------------------------- */
+
+window.addEventListener('resize', () => renderer && renderer.resize());
+
+// Re-frame the course whenever a PANEL changes size, not just the window. The
+// tote is measured when the round opens, before its rows are filled in; it
+// then grows to full height and, on a phone-sized screen, the start gate and
+// the whole field were being drawn behind it for the entire betting phase.
+if ('ResizeObserver' in window) {
+  const ro = new ResizeObserver(() => renderer && renderer.resize());
+  for (const el of document.querySelectorAll('[data-hud]')) ro.observe(el);
+}
+$('nextRace').onclick = newRound;
+$('helpBtn').onclick = () => { $('helpOverlay').hidden = false; };
+$('helpClose').onclick = () => { $('helpOverlay').hidden = true; };
+$('helpOverlay').onclick = (e) => { if (e.target === $('helpOverlay')) $('helpOverlay').hidden = true; };
+
+buildCamBar();
+
+// Boot: a server round if the page came from the round server, else local.
+(async () => {
+  if (await detectServer()) {
+    NET = true;
+    document.body.classList.add('net');
+    betting = new RemoteBetting({
+      round: onNetRound,
+      pool: () => { renderTote(); renderFeed(); if (phase === PHASE.READY) renderBetButton(); },
+      sync: onNetSync,
+      settled: onNetSettled,
+      changed: () => { renderTote(); renderWallet(); },
+      error: (msg) => announce(`<span class="msg">${msg}</span>`, 'out'),
+    });
+  } else newRound();
+  requestAnimationFrame(frame);
+})();
+
+// Small debug surface, same idea as the 3D build's window.__marblerush.
+window.__mr2d = {
+  get phase() { return phase; },
+  get result() { return result; },
+  get engine() { return engine; },
+  get track() { return track; },
+  betting, get renderer() { return renderer; },
+  get lobby() { return lobby; },
+  get net() { return NET; },
+  get drift() { return { mine: Object.fromEntries(mySecond), server: Object.fromEntries(srvSecond) }; },
+  get netRound() { return netRound; },
+  get bettingLive() { return betting; },
+  pause(on = true) { paused = on; },
+  skip() { if (phase === PHASE.BETTING) { betting.placeBet(); enterCountdown(); } },
+  ready() { if (phase === PHASE.BETTING) { betting.placeBet(); enterReady(); } },
+  /** Wind the lobby clock down to `secs`, for testing the expiry path. */
+  clock(secs = 0.05) { lobby = secs; lobbyShown = -1; },
+};

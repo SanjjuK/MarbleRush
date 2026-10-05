@@ -1,0 +1,31 @@
+# Allowlist: ignore everything, then re-include only what the 2D game needs.
+/*
+
+!/.gitignore
+!/MarbleRush2D/
+!/js/
+!/tools/
+!/package.json
+
+# Inside the allowed folders, still leave out:
+.DS_Store
+node_modules/
+.env
+.env.*
+*.pem
+*.key
+*-keypair.json
+id.json
+
+# Player data (wallet ids and balances) is runtime state, never source.
+MarbleRush2D/server/data/
+# Antigravity's fixed-map experiment, not part of this product.
+MarbleRush2D/MarbleRush2D_antigravity/
+
+# Shared folders are mostly the old 3D build. Keep only what 2D imports.
+/js/*
+!/js/rng.js
+!/js/racers.js
+!/js/betting.js
+/tools/*
+!/tools/serve.py
