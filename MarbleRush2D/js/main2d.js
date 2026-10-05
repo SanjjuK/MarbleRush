@@ -32,6 +32,10 @@ const coin = (i) =>
   `<span class="coin" style="--c:${MARBLE_DATA[i].hex};--d:${MARBLE_DARK[i]}"></span>`;
 const PHASE = { BETTING: 'betting', READY: 'ready', COUNTDOWN: 'countdown', RACING: 'racing', FINISHED: 'finished' };
 const STAKES = [10, 25, 50, 100];
+/** Text from the network goes into the page through here, never straight into innerHTML. */
+const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/** Whole numbers for big stakes, cents for small ones (a 0.5 USDC stake must not read as "1"). */
+const fmtA = (v, dp = 0) => fmtAmount(v, Math.abs(v) < 10 && dp === 0 ? 2 : dp);
 /** The currency of the round on screen: its token's symbol, or the demo label. */
 const cur = () => (betting && betting.currency) || CURRENCY;
 // A hard ceiling for a race that has somehow not finished, well clear of the
@@ -284,7 +288,7 @@ function closeLobby() {
   const mine = betting.autoBetPlayer();
 
   autoNote = mine
-    ? `Clock expired. ${fmtAmount(mine.amount, 0)} ${cur()} auto-staked on ${MARBLE_DATA[mine.marble].name}`
+    ? `Clock expired. ${fmtA(mine.amount)} ${cur()} auto-staked on ${MARBLE_DATA[mine.marble].name}`
     : betting.placed ? 'Marbles ready'
     : 'Clock expired with no bet down';
 
@@ -578,8 +582,8 @@ function renderFeed() {
   $('feedCount').textContent = `${betting.bots.length}`;
   ul.innerHTML = rows.map(b =>
     `<li class="${b.mine ? 'mine' : ''}">${coin(b.marble)}` +
-    `<span class="who">${b.handle}${b.auto ? ' <em>auto</em>' : ''}</span>` +
-    `<span class="amt">${fmtAmount(b.amount, 0)}</span></li>`).join('')
+    `<span class="who">${esc(b.handle)}${b.auto ? ' <em>auto</em>' : ''}</span>` +
+    `<span class="amt">${fmtA(b.amount)}</span></li>`).join('')
     || '<li><span class="who">No bets yet</span></li>';
 }
 
@@ -621,10 +625,10 @@ function renderHistory() {
       const profit = h.payout - h.stake;
       const up = profit >= 0;
       if (h.place >= 0) {
-        tag = `${ORD[h.place]} ${up ? '+' : '−'}${fmtAmount(Math.abs(profit), 0)}`;
+        tag = `${ORD[h.place]} ${up ? '+' : '−'}${fmtA(Math.abs(profit))}`;
         cls = up ? 'win' : 'lose';
       } else {
-        tag = `−${fmtAmount(h.stake, 0)}`;
+        tag = `−${fmtA(h.stake)}`;
         cls = 'lose';
       }
     }
@@ -1200,7 +1204,7 @@ buildCamBar();
       },
       chain: () => { renderFair(); if (phase === PHASE.BETTING) renderBetButton(); },
       changed: () => { renderTote(); renderWallet(); renderStakes(); renderBetButton(); },
-      error: (msg) => announce(`<span class="msg">${msg}</span>`, 'out'),
+      error: (msg) => announce(`<span class="msg">${esc(msg)}</span>`, 'out'),
     });
   } else newRound();
   requestAnimationFrame(frame);

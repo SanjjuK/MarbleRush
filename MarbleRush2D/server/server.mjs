@@ -40,7 +40,7 @@ import { buildTrack } from '../js/track2d.js';
 import { Engine2D, SIM_DT } from '../js/engine2d.js';
 import { buildPrint } from '../js/detcheck.js';
 import { createAuth, parseCookie, shortAddress } from './auth.mjs';
-import { openChain } from './chain.mjs';
+import { openChain, scrub } from './chain.mjs';
 
 // How this server races, as a hash (see detcheck.js). Sent to every browser.
 const PRINT = buildPrint();
@@ -87,6 +87,7 @@ setInterval(() => saveWallets().catch(e => console.error('[wallets]', e)), 3000)
 
 const auth = createAuth({ dir: DATA });
 let chain = null;
+const balanceCache = new Map();    // pid+token -> { t, v }: one RPC read per second per wallet at most
 const SCHEDULE = () => path.join(DATA, 'schedule.json');                 // the Solana side; null until tools/chain-setup.mjs has run
 setInterval(() => auth.save().catch(e => console.error('[sessions]', e)), 3000);
 
@@ -232,7 +233,7 @@ async function runJobs() {
       try { await runJob(job); }
       catch (e) {
         job.tries += 1;
-        console.error(`[${job.kind} ${job.id}] attempt ${job.tries}:`, String(e.message).slice(0, 160));
+        console.error(`[${job.kind} ${job.id}] attempt ${job.tries}:`, scrub(e));
         if (job.tries >= 6) job.status = 'failed';
       }
       await saveJobs();
@@ -248,11 +249,12 @@ async function anchor(r, kind, text) {
   const slot = r.chain[kind];
   slot.status = 'pending';
   try {
+    if (!(await chain.solAtLeast(0.005))) throw new Error('house wallet low on SOL: round memos paused so payouts can keep going');
     slot.sig = (await chain.postMemo(text)).signature;
     slot.status = 'confirmed';
   } catch (e) {
     slot.status = 'failed';
-    console.error(`[round ${r.id}] ${kind} memo failed:`, String(e.message).slice(0, 160));
+    console.error(`[round ${r.id}] ${kind} memo failed:`, scrub(e));
   }
   broadcast('chain', chainMsg(r));
 }
@@ -443,12 +445,57 @@ setInterval(() => { for (const res of clients.keys()) res.write(': keep-alive\n\
 
 /* --------------------------------- HTTP --------------------------------- */
 
+/** The caller's address. Behind a proxy (MR_TRUST_PROXY=1) it is the last hop the proxy appended; otherwise the socket's. */
+const clientIp = (req) => {
+  if (process.env.MR_TRUST_PROXY === '1') {
+    const f = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (f.length) return f[f.length - 1];
+  }
+  return req.socket.remoteAddress || '?';
+};
+
+/** A sliding-window limiter: allow(key) is true while `key` has made fewer than `max` calls in `ms`. */
+function limiter(max, ms) {
+  const hits = new Map();
+  setInterval(() => { const t = Date.now(); for (const [k, l] of hits) { const keep = l.filter(x => x > t - ms); if (keep.length) hits.set(k, keep); else hits.delete(k); } }, 30_000).unref();
+  return {
+    allow(key) {
+      const t = Date.now(), l = (hits.get(key) || []).filter(x => x > t - ms);
+      if (l.length >= max) { hits.set(key, l); return false; }
+      l.push(t); hits.set(key, l); return true;
+    },
+    undo(key) { const l = hits.get(key); if (l) l.pop(); },
+  };
+}
+const apiLimit = limiter(150, 10_000);                 // any API call, per address
+const prepareLimit = limiter(1, 1500);                 // one bet build per player per 1.5s: each one costs RPC calls
+const faucetIpLimit = limiter(+(process.env.MR_FAUCET_PER_IP || 3), 86_400_000);
+const faucetDayLimit = limiter(+(process.env.MR_FAUCET_PER_DAY || 150), 86_400_000);   // the faucet pays ~0.002 SOL of rent per new wallet
+const sseByIp = new Map();
+const SSE_PER_IP = 12, SSE_TOTAL = 800;
+
+/** Headers for every response. The page signs wallet messages, so it must never be framed or load a foreign script. */
+function hardenHeaders(req, res) {
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('content-security-policy', [
+    "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com", "img-src 'self' data: blob:", "connect-src 'self'",
+    "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'", "object-src 'none'",
+  ].join('; '));
+  if (secure(req)) res.setHeader('strict-transport-security', 'max-age=31536000');
+}
+
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp4': 'video/mp4' };
 // Only the game and the shared modules are served. Nothing else in the
 // project folder (backups, logs, the wallets file) is reachable.
-const SERVED = ['MarbleRush2D/', 'js/'];
+// The page itself, its styles and scripts, and the three shared modules it imports. The server code, the
+// QA tools, the README and the data folder are NOT served.
+const SERVED = [/^MarbleRush2D\/index\.html$/, /^MarbleRush2D\/css\/[\w.-]+$/, /^MarbleRush2D\/js\/(vendor\/)?[\w.-]+\.js$/, /^js\/(rng|racers|betting)\.js$/];
 
 function json(res, code, body) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -473,6 +520,10 @@ async function api(req, res, url) {
   const pid = auth.sessionPid(token);                       // null: a spectator
 
   if (url.pathname === '/api/events') {
+    const ip = clientIp(req);
+    if (clients.size >= SSE_TOTAL || (sseByIp.get(ip) || 0) >= SSE_PER_IP) return json(res, 429, { error: 'too many open connections' });
+    sseByIp.set(ip, (sseByIp.get(ip) || 0) + 1);
+    res.on('close', () => { const n = (sseByIp.get(ip) || 1) - 1; if (n) sseByIp.set(ip, n); else sseByIp.delete(ip); });
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     clients.set(res, { pid });
     if (pid) {
@@ -491,7 +542,12 @@ async function api(req, res, url) {
     if (!chain) return json(res, 503, { error: 'chain not set up' });
     const symbol = url.searchParams.get('token') || chain.defaultToken;
     if (!chain.tokens.has(symbol)) return json(res, 400, { error: 'unknown token' });
-    return json(res, 200, { token: symbol, balance: await chain.balanceOf(pid, symbol) });
+    const hit = balanceCache.get(pid + symbol);
+    if (hit && Date.now() - hit.t < 1000) return json(res, 200, { token: symbol, balance: hit.v });
+    const v = await chain.balanceOf(pid, symbol);
+    balanceCache.set(pid + symbol, { t: Date.now(), v });
+    if (balanceCache.size > 5000) balanceCache.clear();
+    return json(res, 200, { token: symbol, balance: v });
   }
   if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
   // A cookie rides along on any request the browser makes, so a POST must
@@ -523,12 +579,18 @@ async function api(req, res, url) {
     if (!chain) return json(res, 503, { error: 'chain not set up' });
     const symbol = String(body.token || chain.defaultToken);
     if (!chain.tokens.has(symbol)) return json(res, 400, { error: 'unknown token' });
+    if (!(await chain.solAtLeast(0.01))) return json(res, 503, { error: 'the faucet is paused: the house wallet is low on SOL' });
+    const ip = clientIp(req);
+    if (!faucetIpLimit.allow(ip)) return json(res, 429, { error: 'too many faucet claims from this network today' });
+    if (!faucetDayLimit.allow('all')) { faucetIpLimit.undo(ip); return json(res, 429, { error: 'the faucet has reached its daily limit, try tomorrow' }); }
     try {
       const out = await chain.claimFaucet(pid, symbol);
-      if (out.error) return json(res, out.status, { error: out.error, retryInMs: out.retryInMs });
+      if (out.error) { faucetIpLimit.undo(ip); faucetDayLimit.undo('all'); return json(res, out.status, { error: out.error, retryInMs: out.retryInMs }); }
+      balanceCache.delete(pid + symbol);
       return json(res, 200, { ok: true, ...out, balance: await chain.balanceOf(pid, symbol) });
     } catch (e) {
-      console.error('[faucet]', e.message);
+      faucetIpLimit.undo(ip); faucetDayLimit.undo('all');
+      console.error('[faucet]', scrub(e));
       return json(res, 502, { error: 'the faucet could not reach Solana, try again' });
     }
   }
@@ -539,6 +601,8 @@ async function api(req, res, url) {
     if (!chain || !r.token) return json(res, 409, { error: 'this round has no token' });
     if (r.phase !== 'betting' || r.closesAt - now() < 4000) return json(res, 409, { error: 'betting is closed' });
     if (r.chain.commit.status === 'pending') return json(res, 409, { error: 'sealing the round on Solana, one moment' });
+    if (!prepareLimit.allow(pid)) return json(res, 429, { error: 'one moment' });
+    if (!(await chain.solAtLeast(0.003))) return json(res, 503, { error: 'bets are paused: the house wallet is low on SOL for fees' });
     const tok = chain.token(r.token);
     const marble = body.marble | 0;
     const amount = Math.round(+body.amount * 10 ** 6) / 10 ** 6;
@@ -552,14 +616,14 @@ async function api(req, res, url) {
     try {
       const prep = await chain.prepareBet({ owner: pid, symbol: r.token, amount, roundId: r.id, marble, memo: `mr1|bet|${r.id}|${marble}|${amount}` });
       return json(res, 200, { ...prep, marble, amount, token: r.token });
-    } catch (e) { r.inflight.delete(pid); console.error('[prepare]', e.message); return json(res, 502, { error: 'could not build the bet' }); }
+    } catch (e) { r.inflight.delete(pid); console.error('[prepare]', scrub(e)); return json(res, 502, { error: 'could not build the bet' }); }
   }
   if (url.pathname === '/api/bet/submit') {
     if (!chain || !chain.preparedBet(String(body.prepId || ''), pid)) return json(res, 410, { error: 'that bet expired, try again' });
     const r0 = round;
     let out;
     try { out = await chain.submitBet(String(body.prepId), pid, String(body.tx || '')); }
-    catch (e) { console.error('[submit]', String(e.message).slice(0, 200)); r0.inflight.delete(pid); return json(res, 502, { error: 'the bet did not reach Solana, try again' }); }
+    catch (e) { console.error('[submit]', scrub(e)); r0.inflight.delete(pid); return json(res, 502, { error: 'the bet did not reach Solana, try again' }); }
     r0.inflight.delete(pid);
     if (out.error) return json(res, out.status, { error: out.error });
     // It landed. It counts only if its own round is still taking bets; otherwise it is refunded.
@@ -607,11 +671,12 @@ async function api(req, res, url) {
 }
 
 async function statics(req, res, url) {
-  let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+  let rel;
+  try { rel = decodeURIComponent(url.pathname).replace(/^\/+/, ''); } catch { res.writeHead(400); return res.end('bad request'); }
   if (rel === '' ) { res.writeHead(302, { location: '/MarbleRush2D/' }); return res.end(); }
   if (rel.endsWith('/')) rel += 'index.html';
   const file = path.resolve(ROOT, rel);
-  if (!file.startsWith(ROOT + path.sep) || !SERVED.some(p => rel.startsWith(p)) || rel.includes('/server/')) {
+  if (!file.startsWith(ROOT + path.sep) || !SERVED.some(re => re.test(rel))) {
     res.writeHead(404); return res.end('not found');
   }
   try {
@@ -627,12 +692,16 @@ export async function start(port = PORT) {
   try {
     chain = await openChain({ dataDir: process.env.MR_CHAIN_DIR || DATA });
     try { jobs = JSON.parse(await readFile(JOBS_FILE(), 'utf8')); runJobs(); } catch { /* none yet */ }
+    if (chain) { try { console.log(`[chain] house wallet ${(await chain.authoritySol()).toFixed(4)} SOL` + (await chain.solAtLeast(0.05) ? '' : '  <-- LOW: top up before the faucet and bets pause')); } catch { /* offline */ } }
     console.log(chain ? `[chain] ${chain.cluster}, tokens ${[...chain.tokens.keys()].join(', ')}, authority ${chain.authority.publicKey.toBase58()}` : '[chain] not set up: demo money only');
-  } catch (e) { console.error('[chain] could not open:', e.message); }
+  } catch (e) { console.error('[chain] could not open:', scrub(e)); }
   await openRound();
   setInterval(tick, 100);
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://x');
+    hardenHeaders(req, res);
+    let url;
+    try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400); return res.end('bad request'); }
+    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/events' && !apiLimit.allow(clientIp(req))) return json(res, 429, { error: 'too many requests, slow down' });
     const go = url.pathname.startsWith('/api/') ? api(req, res, url) : statics(req, res, url);
     go.catch(e => { console.error(e); if (!res.headersSent) json(res, 500, { error: 'server error' }); });
   });

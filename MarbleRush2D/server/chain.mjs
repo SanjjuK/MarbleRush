@@ -16,7 +16,7 @@
 // tokens. It is a hot key on a devnet server: it lives in data/authority.json
 // (mode 600, git-ignored) or in MR_AUTHORITY_KEY, never in the repo.
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { b58encode } from './auth.mjs';
 import { fileURLToPath } from 'node:url';
@@ -49,8 +49,17 @@ export async function rpcUrl(cluster, dataDir) {
 export const toBase = (amount, decimals) => BigInt(Math.floor(amount * 10 ** decimals + 1e-9));
 export const fromBase = (units, decimals) => Number(units) / 10 ** decimals;
 
+/** An error message that is safe to log: no URL (an RPC address carries the provider's API key), no key=value secrets. */
+export const scrub = (e) => String((e && e.message) || e).replace(/https?:\/\/[^\s"')]+/g, '<url>').replace(/(api[-_]?key|token|secret)=[^\s&"']+/gi, '$1=<hidden>').slice(0, 200);
+
 export async function loadAuthority(dataDir) {
   const env = process.env.MR_AUTHORITY_KEY;
+  if (!env) {
+    try {
+      const mode = (await stat(path.join(dataDir, 'authority.json'))).mode & 0o777;
+      if (mode & 0o077) console.warn(`[chain] WARNING: data/authority.json is readable by other users (mode ${mode.toString(8)}); run: chmod 600 data/authority.json`);
+    } catch { /* no key file yet */ }
+  }
   const raw = env ? JSON.parse(env) : await readJson(path.join(dataDir, 'authority.json'));
   return raw ? Keypair.fromSecretKey(Uint8Array.from(raw)) : null;
 }
@@ -248,6 +257,18 @@ export async function openChain({ dataDir, configFile = path.join(HERE, 'tokens.
     },
 
     async vaultBalance(symbol) { return this.balanceOf(authority.publicKey.toBase58(), symbol); },
+
+    /**
+     * Is there at least `min` SOL in the server's fee wallet? Cached for 30s. Payouts are the last thing
+     * allowed to run dry: the faucet and the round memos stop first (see the reserves in server.mjs).
+     */
+    async solAtLeast(min) {
+      const t = Date.now();
+      if (!this._sol || t - this._sol.t > 30_000) {
+        try { this._sol = { t, v: await this.authoritySol() }; } catch { return true; }   // an RPC hiccup is not "empty"
+      }
+      return this._sol.v >= min;
+    },
 
     async authoritySol() { return (await connection.getBalance(authority.publicKey)) / LAMPORTS_PER_SOL; },
   };

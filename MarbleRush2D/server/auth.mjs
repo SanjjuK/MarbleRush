@@ -96,7 +96,7 @@ export function createAuth({ dir, nonceMs = 5 * 60_000, sessionMs = 14 * 86_400_
     prune();
     const t = clock();
     const recent = issued.get(ip) || [];
-    if (recent.length >= 20 || nonces.size > 5000) return { error: 'slow down', status: 429 };
+    if (recent.length >= 12 || nonces.size > 5000) return { error: 'slow down', status: 429 };
     recent.push(t); issued.set(ip, recent);
     const nonce = randomBytes(16).toString('hex');
     const message =
@@ -117,6 +117,7 @@ export function createAuth({ dir, nonceMs = 5 * 60_000, sessionMs = 14 * 86_400_
     if (!pub || !verifySignature(pub, rec.message, sig)) return { error: 'signature did not match' };
     const token = randomBytes(32).toString('hex');
     sessions.set(sha256(token), { pid: address, exp: clock() + sessionMs });
+    while (sessions.size > 20000) sessions.delete(sessions.keys().next().value);   // oldest first: a flood of throwaway keys cannot grow this without bound
     dirty = true;
     return { token, pid: address, maxAge: Math.floor(sessionMs / 1000) };
   }

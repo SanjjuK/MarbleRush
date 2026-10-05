@@ -22,7 +22,7 @@ import { Keypair, Transaction, SystemProgram } from '@solana/web3.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHAIN_DIR = process.env.MR_CHAIN_DIR || join(HERE, '..', 'server', 'data');
-process.env.MR_LOBBY = '14'; process.env.MR_BLOCKS = '6';
+process.env.MR_LOBBY = '26'; process.env.MR_BLOCKS = '6';
 process.env.MR_DATA = mkdtempSync(join(tmpdir(), 'mr-bets-e2e-'));
 process.env.MR_CHAIN_DIR = CHAIN_DIR;
 
@@ -93,7 +93,7 @@ for (const w of [A, B, C]) bal0[w.address] = (await w.get(`balance?token=${SYM}`
 const vault0 = await (async () => { const { openChain } = await import('../server/chain.mjs'); const c = await openChain({ dataDir: CHAIN_DIR }); return { c, bal: await c.vaultBalance(SYM) }; })();
 
 // a fresh round, with its commit landed
-let open = await wait(e => e.type === 'round' && e.data.phase === 'betting' && e.data.closesAt - Date.now() > 9000);
+let open = await wait(e => e.type === 'round' && e.data.phase === 'betting' && e.data.closesAt - Date.now() > 18000);
 const id = open.data.id;
 await wait(e => e.type === 'chain' && e.data.id === id && e.data.commit.status !== 'pending');
 check(open.data.token === SYM && open.data.minBet === tokMeta.minBet, `round ${id} is in ${SYM}, minimum ${open.data.minBet}`);
@@ -105,6 +105,7 @@ const pa = await A.post('bet/prepare', { marble: 0, amount: STAKE });
 check(pa.code === 200 && !!pa.body.prepId, 'A: the server builds a bet to sign');
 const sa = await A.post('bet/submit', { prepId: pa.body.prepId, tx: signTx(A, pa.body) });
 check(sa.code === 200 && !!sa.body.signature, `A: the signed bet lands on chain (${(sa.body.signature || '').slice(0, 12)}…)`);
+await sleep(1600);                                          // prepares are rate limited per player
 check((await A.post('bet/prepare', { marble: 1, amount: STAKE })).code === 409, 'A: a second bet in the same round is refused');
 check((await A.post('bet/submit', { prepId: pa.body.prepId, tx: signTx(A, pa.body) })).code === 410, 'A: the same signed bet cannot be submitted twice');
 
@@ -121,6 +122,7 @@ const pb = await B.post('bet/prepare', { marble: 1, amount: STAKE });
   const bad = await B.post('bet/submit', { prepId: pb.body.prepId, tx: t2.serialize({ requireAllSignatures: false }).toString('base64') });
   check(bad.code === 400, 'B: a transaction that differs from the one prepared is refused');
 }
+await sleep(1600);
 const pb2 = await B.post('bet/prepare', { marble: 1, amount: STAKE });
 const sb = await B.post('bet/submit', { prepId: pb2.body.prepId, tx: signTx(B, pb2.body) });
 check(sb.code === 200, 'B: the honest bet lands');

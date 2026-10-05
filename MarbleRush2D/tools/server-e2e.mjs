@@ -126,6 +126,53 @@ check((await fetch(`${base}/api/topup`, { method: 'POST', body: '{}', headers: {
 await json('auth/logout', {}, { cookie: lo.cookie });
 check((await fetch(`${base}/api/topup`, { method: 'POST', body: '{}', headers: { cookie: lo.cookie } })).status === 401, 'after logout the same cookie is dead');
 
+// --- hardening -------------------------------------------------------------
+{
+  const get = (p, init) => fetch(`${base}${p}`, { redirect: 'manual', ...init });
+  const page = await get('/MarbleRush2D/');
+  const csp = page.headers.get('content-security-policy') || '';
+  check(page.headers.get('x-content-type-options') === 'nosniff' && page.headers.get('x-frame-options') === 'DENY' && /frame-ancestors 'none'/.test(csp) && /script-src 'self'/.test(csp), 'pages carry nosniff, no-framing and a script-src self policy');
+  check((await get('/api/ping')).headers.get('x-content-type-options') === 'nosniff', 'API answers carry the headers too');
+  for (const ok of ['/MarbleRush2D/js/main2d.js', '/MarbleRush2D/js/vendor/solana-web3.js', '/MarbleRush2D/css/style.css', '/js/rng.js', '/js/betting.js']) {
+    if ((await get(ok)).status !== 200) check(false, `${ok} is served`);
+  }
+  const blocked = ['/MarbleRush2D/server/auth.mjs', '/MarbleRush2D/server/data/wallets.json', '/MarbleRush2D/tools/server-e2e.mjs', '/MarbleRush2D/tools/qa/predrop.mjs',
+    '/MarbleRush2D/README.md', '/js/main.js', '/package.json', '/.gitignore', '/%2e%2e/package.json', '/MarbleRush2D/..%2f..%2fpackage.json', '/MarbleRush2D/js/%00.js', '/MarbleRush2D/js/%E0%A4%A'];
+  const codes = await Promise.all(blocked.map(async p => [p, (await get(p)).status]));
+  check(codes.every(([, c]) => c === 404 || c === 400), `server code, QA tools, data, README, 3D files and path tricks are not served (${codes.map(([, c]) => c).join(',')})`);
+  const open = [], ctrls = [];
+  for (let i = 0; i < 13; i++) { const c = new AbortController(); ctrls.push(c); open.push(fetch(`${base}/api/events`, { signal: c.signal }).then(r => r.status).catch(() => 'timeout')); }
+  const sse = await Promise.all(open);
+  ctrls.forEach(c => c.abort());
+  await new Promise(r => setTimeout(r, 300));                  // let the server see them close
+  check(sse.filter(c => c === 429).length >= 1, `more than 12 open streams from one address are refused (${sse.filter(c => c === 429).length} refused)`);
+}
+{
+  // sessions survive a restart, expire, and are capped
+  const { createAuth, b58encode: enc } = await import('../server/auth.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'mr-auth-'));
+  let t = 1_000_000;
+  const w = newWallet();
+  const a1 = createAuth({ dir, clock: () => t, sessionMs: 10_000 });
+  const n = a1.issueNonce({ address: w.address, host: 'x', ip: '1' });
+  const v = a1.verifyLogin({ address: w.address, nonce: n.nonce, signature: w.sign(n.message) });
+  await a1.save();
+  const a2 = createAuth({ dir, clock: () => t, sessionMs: 10_000 });
+  await a2.load();
+  check(a2.sessionPid(v.token) === w.address, 'a session survives a server restart');
+  t += 20_000;
+  check(a2.sessionPid(v.token) === null, 'and expires on schedule');
+  const a3 = createAuth({ dir, clock: () => t });
+  let refused = 0;
+  for (let i = 0; i < 14; i++) if (a3.issueNonce({ address: w.address, host: 'x', ip: 'same' }).status === 429) refused++;
+  check(refused >= 2, 'one address cannot ask for unlimited sign-in nonces');
+}
+{
+  const { scrub } = await import('../server/chain.mjs');
+  const out = scrub(new Error('failed to get blockhash: fetch to https://devnet.helius-rpc.com/?api-key=abc123secret failed'));
+  check(!/helius|abc123secret/.test(out), 'log messages never contain the RPC address or its key');
+}
+
 const A = player(la), B = player(lb);
 // Start clean: wait for a fresh betting round (the first may be half gone).
 let ra = await A.wait(e => e.type === 'round' && e.data.phase === 'betting');
@@ -196,6 +243,10 @@ check(near(sB.balance, balB0 - 25 + expect(1, 25)), `B settled right: ${balB0} -
 const next = await A.wait(e => e.type === 'round' && e.data.id === id + 1, 30000);
 check(next.data.phase === 'betting' && next.data.commitment !== ra.data.commitment, 'the next round opens with a new commitment');
 
+{
+  const burst = await Promise.all(Array.from({ length: 200 }, () => fetch(`${base}/api/ping`).then(r => r.status)));
+  check(burst.includes(429) && burst.includes(200), `a flood of API calls from one address is cut off (${burst.filter(c => c === 429).length} of 200 refused)`);
+}
 A.close(); B.close(); C.close();
 server.close();
 console.log(`\n  ${failures ? failures + ' FAILED' : 'all passed'}\n`);

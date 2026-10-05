@@ -1,3 +1,5 @@
+> Project overview, setup and the Solana layer: see the [root README](../README.md). This file is about the 2D engine and its QA tools.
+
 # MarbleRush 2D
 
 The 2D build. Same product, parimutuel marble racing, back a marble, share

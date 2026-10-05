@@ -3,10 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Parimutuel marble racing. The authoritative race runs headless in Node; the browser replays it.",
+  "description": "Live parimutuel marble racing on Solana. Every round is sealed on-chain before betting and revealed after the race.",
   "scripts": {
-    "dev": "MR_ROOT=\"$PWD\" python3 tools/serve.py",
-    "simulate": "node tools/simulate.js",
     "chain:setup": "node MarbleRush2D/tools/chain-setup.mjs",
     "build:vendor": "node MarbleRush2D/tools/build-vendor.mjs",
     "start": "node MarbleRush2D/server/server.mjs",
@@ -16,11 +14,12 @@
   },
   "dependencies": {
     "@solana/spl-token": "0.4.15",
-    "@solana/web3.js": "1.99.0",
-    "cannon-es": "0.20.0",
-    "three": "0.169.0"
+    "@solana/web3.js": "1.99.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

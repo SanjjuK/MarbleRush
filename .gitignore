@@ -7,6 +7,8 @@
 !/tools/
 !/package.json
 !/package-lock.json
+!/README.md
+!/SECURITY.md
 
 # Inside the allowed folders, still leave out:
 .DS_Store
