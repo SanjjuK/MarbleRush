@@ -41,9 +41,11 @@ import { Engine2D, SIM_DT } from '../js/engine2d.js';
 import { buildPrint } from '../js/detcheck.js';
 import { createAuth, parseCookie, shortAddress } from './auth.mjs';
 import { openChain, scrub } from './chain.mjs';
+import { CODE_FILES, codeHash, gitRev } from './codeversion.mjs';
 
 // How this server races, as a hash (see detcheck.js). Sent to every browser.
 const PRINT = buildPrint();
+let CODE = { hash: '', rev: 'nogit', files: CODE_FILES };      // filled in at start: the hash of the race code as it was when this server began
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');            // project root: serves /MarbleRush2D and /js
@@ -175,6 +177,29 @@ async function pickToken() {
 
 const chainMsg = (r) => ({ id: r.id, cluster: chain ? chain.cluster : null, token: r.token, commit: r.chain.commit, reveal: r.chain.reveal, payout: payoutSummary(r.id) });
 
+/* --------------------------- surviving a restart -------------------------- */
+//
+// Bets live in memory, but a confirmed bet is real money in the vault. So the round's real bets are
+// written to data/round.json as they land. If the server stops mid-round (a deploy, a crash), the next
+// start refunds every bet of that unfinished round and continues the round numbering, so ids never repeat.
+
+const ROUND_FILE = () => path.join(DATA, 'round.json');
+function saveRoundState(r) {
+  const state = { id: r.id, token: r.token, settled: !!r.settled,
+    bets: r.bets.filter(b => b.pid).map(b => ({ pid: b.pid, marble: b.marble, amount: b.amount, sig: b.sig })) };
+  mkdir(DATA, { recursive: true }).then(() => writeFile(ROUND_FILE(), JSON.stringify(state))).catch(e => console.error('[round state]', scrub(e)));
+}
+async function recoverRound() {
+  let st;
+  try { st = JSON.parse(await readFile(ROUND_FILE(), 'utf8')); } catch { return; }
+  roundNo = Math.max(roundNo, st.id || 0);                       // numbering continues
+  if (!chain || !st.token || st.settled || !st.bets.length) return;
+  if (jobs.some(j => j.round === st.id && j.kind === 'refund')) return;   // already handled
+  console.log(`[restart] round ${st.id} was unfinished: refunding ${st.bets.length} bet(s) in ${st.token}`);
+  queueJobs('refund', st.id, st.token, st.bets.map(b => ({ owner: b.pid, amount: b.amount })));
+  chain.postMemo(`mr1|void|${st.id}|${st.token}|server restarted before the result, all bets refunded`).catch(() => {});
+}
+
 /* ------------------------------ payout jobs ------------------------------ */
 //
 // Winners are paid out of the vault, a few to a transaction. Each transaction is a JOB that is
@@ -303,11 +328,12 @@ export async function openRound() {
     pools: new Array(K).fill(0), backers: new Array(K).fill(0),
     bets: [], bots: makeBots(makeRng(raceSeed + ':bots'), minBet / MIN_BET), ready: new Set(), settled: null,
   };
+  saveRoundState(round);
   console.log(`[round ${round.id}] open  course ${courseSeed}  commit ${round.commitment.slice(0, 16)}…  ` +
               `race ${result.time}s precomputed in ${ms.toFixed(0)}ms`);   // never the winner: logs get shared
   broadcast('round', publicRound());
   // Seal it: the commitment goes on chain now, before any bet can be taken.
-  if (chain) anchor(round, 'commit', `mr1|commit|${round.id}|${token}|${courseSeed}|${round.commitment}|${PRINT}|${T.blocks || 0}`);
+  if (chain) anchor(round, 'commit', `mr1|commit|${round.id}|${token}|${courseSeed}|${round.commitment}|${PRINT}|${T.blocks || 0}|${CODE.hash}|${CODE.rev}`);
 }
 
 /** Everything a browser may know right now. The race seed only once racing. */
@@ -413,6 +439,7 @@ function tick() {
         anchor(r, 'reveal', `mr1|reveal|${r.id}|${r.token}|${r.raceSeed}|${r.result.finishOrder.join(',')}|${r.settled.totalPool}|${r.chain.commit.sig}`);
       }
       if (r.token && chain && r.payouts.length) queueJobs('payout', r.id, r.token, r.payouts);
+      saveRoundState(r);
       r.phase = 'results';
       broadcast('round', publicRound());
       for (const [res, c] of clients) if (c.pid) send(res, 'settled', settledFor(c.pid));
@@ -528,8 +555,8 @@ async function api(req, res, url) {
     clients.set(res, { pid });
     if (pid) {
       const w = wallet(pid);
-      send(res, 'hello', { pid, name: w.name, print: PRINT, balance: w.balance, onchain: !!round.token, history: w.history, stats: w.stats, now: now(), timing: T });
-    } else send(res, 'hello', { guest: true, print: PRINT, balance: 0, history: [], stats: null, now: now(), timing: T });
+      send(res, 'hello', { pid, name: w.name, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, history: w.history, stats: w.stats, now: now(), timing: T });
+    } else send(res, 'hello', { guest: true, print: PRINT, code: CODE, balance: 0, history: [], stats: null, now: now(), timing: T });
     send(res, 'round', publicRound());
     send(res, 'chain', chainMsg(round));
     if (pid && round.phase === 'results') send(res, 'settled', settledFor(pid));
@@ -636,6 +663,7 @@ async function api(req, res, url) {
     const w = wallet(pid);
     w.stats.races += 1; w.stats.wagered += out.amount; walletsDirty = true;
     addBet(r, { pid, handle: w.name, marble: out.marble, amount: out.amount, sig: out.signature });
+    saveRoundState(r);
     broadcast('pool', poolMsg());
     return json(res, 200, { ok: true, signature: out.signature, round: out.roundId, amount: out.amount });
   }
@@ -687,6 +715,8 @@ async function statics(req, res, url) {
 }
 
 export async function start(port = PORT) {
+  CODE = { hash: await codeHash(ROOT), rev: gitRev(ROOT), files: CODE_FILES };
+  console.log(`[code] race code ${CODE.hash} (${CODE.rev})`);
   await loadWallets();
   await auth.load();
   try {
@@ -695,6 +725,7 @@ export async function start(port = PORT) {
     if (chain) { try { console.log(`[chain] house wallet ${(await chain.authoritySol()).toFixed(4)} SOL` + (await chain.solAtLeast(0.05) ? '' : '  <-- LOW: top up before the faucet and bets pause')); } catch { /* offline */ } }
     console.log(chain ? `[chain] ${chain.cluster}, tokens ${[...chain.tokens.keys()].join(', ')}, authority ${chain.authority.publicKey.toBase58()}` : '[chain] not set up: demo money only');
   } catch (e) { console.error('[chain] could not open:', scrub(e)); }
+  await recoverRound();
   await openRound();
   setInterval(tick, 100);
   const server = http.createServer((req, res) => {

@@ -65,7 +65,7 @@ check(reveal.data.reveal.status === 'confirmed', `the reveal memo confirmed (${(
 
 const connection = new Connection(await rpcUrl('devnet', process.env.MR_CHAIN_DIR), 'confirmed');
 const v = await verifyReveal(connection, reveal.data.reveal.sig);
-for (const c of v.checks) check(c.ok, `verify-round: ${c.what}`);
+for (const c of v.checks) check(c.ok || c.warn, `verify-round: ${c.what}`);
 
 ctrl.abort(); server.close();
 console.log(`\n  ${failures ? failures + ' FAILED' : 'all passed'}\n`);

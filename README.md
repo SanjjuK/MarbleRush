@@ -52,11 +52,19 @@ Configuration (all optional):
 
 Serve it over HTTPS in public: the session cookie and wallet signatures depend on it.
 
+## Changing the game while the server runs
+
+Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, and `MarbleRush2D/js/{engine2d,track2d,sectionStats,detcheck}.js`). Each round's commit memo records a hash of exactly those files and the git revision (`+dirty` if uncommitted). So:
+
+- `npm run dev` restarts the server whenever a file changes. A restart refunds the bets of the unfinished round and continues the round numbering; nothing is lost.
+- If the files change under a *running* server, open pages warn "the game was updated, reload", because the server would otherwise race with older code than the pages load.
+- `verify-round` tells you when a round was raced by a different version of the code, and which revision to check out to replay it.
+
 ## Tests
 
 ```bash
 npm run test:e2e     # round server, wallet sign-in, security checks (no chain needed)
-npm run test:chain   # a real devnet round, signed bets, refunds and payouts (needs chain:setup and a little SOL)
+npm run test:chain   # real devnet: a sealed and verified round, signed bets, refunds, payouts, a server killed mid-round (needs chain:setup and a little SOL)
 ```
 
 `MarbleRush2D/tools/` also holds the race fairness and drama harnesses (`fairness2d.js`, `drama2d.js`) used to tune the game.

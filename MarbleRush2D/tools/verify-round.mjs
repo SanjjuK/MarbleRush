@@ -25,6 +25,7 @@ import { MARBLE_DATA } from '../../js/racers.js';
 import { buildTrack } from '../js/track2d.js';
 import { Engine2D, SIM_DT } from '../js/engine2d.js';
 import { buildPrint } from '../js/detcheck.js';
+import { codeHash } from '../server/codeversion.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
@@ -55,12 +56,12 @@ export function replayRace(courseSeed, raceSeed, blocks) {
 
 export async function verifyReveal(connection, revealSig) {
   const checks = [];
-  const check = (ok, what) => checks.push({ ok, what });
+  const check = (ok, what, warn = false) => checks.push({ ok, what, warn });
   const rev = await readMemo(connection, revealSig);
   const [tag, kind, id, token, raceSeed, order, pool, commitSig] = rev.text.split('|');
   if (tag !== 'mr1' || kind !== 'reveal') throw new Error('that is not a MarbleRush reveal memo');
   const com = await readMemo(connection, commitSig);
-  const [ctag, ckind, cid, ctoken, courseSeed, commitment, print, blocks] = com.text.split('|');
+  const [ctag, ckind, cid, ctoken, courseSeed, commitment, print, blocks, memoCode, memoRev] = com.text.split('|');
 
   check(ctag === 'mr1' && ckind === 'commit', 'the referenced transaction is a MarbleRush commit');
   check(sha256(raceSeed) === commitment, `the revealed seed hashes to the committed hash (${commitment.slice(0, 16)}…)`);
@@ -68,9 +69,15 @@ export async function verifyReveal(connection, revealSig) {
   check(cid === id && ctoken === token, `both memos are round ${id}, token ${token}`);
   check(com.signer === rev.signer, `both signed by ${rev.signer.slice(0, 4)}…${rev.signer.slice(-4)}`);
   const mine = replayRace(courseSeed, raceSeed, +blocks || 0);
-  check(mine.join(',') === order, `replaying the race gives the published order (${mine.map(i => MARBLE_DATA[i].name).join(' > ')})`);
+  const replayOk = mine.join(',') === order;
+  const localCode = await codeHash(path.join(HERE, '..', '..'));
+  const sameCode = !memoCode || memoCode === localCode;
+  check(replayOk, replayOk ? `replaying the race gives the published order (${mine.map(i => MARBLE_DATA[i].name).join(' > ')})`
+    : `replaying the race does NOT give the published order${sameCode ? '' : `: this copy of the game is not the one that raced, check out ${memoRev || 'the recorded revision'} and run again`}`);
   check(print === buildPrint(), `this machine's engine matches the one that raced (build ${print})`);
-  return { id, token, pool: +pool, order: order.split(',').map(Number), commitSig, revealSig, checks, ok: checks.every(c => c.ok) };
+  if (memoCode) check(sameCode, sameCode ? `the race code is identical to the version that raced (${memoCode}, ${memoRev})`
+    : `the race code differs from the version that raced (memo ${memoCode} at ${memoRev}, here ${localCode})${replayOk ? ': the replay still matched' : ''}`, replayOk);
+  return { id, token, pool: +pool, order: order.split(',').map(Number), commitSig, revealSig, checks, ok: checks.every(c => c.ok || c.warn) };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
@@ -80,7 +87,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const connection = new Connection(await rpcUrl('devnet', dataDir), 'confirmed');
   const r = await verifyReveal(connection, sig);
   console.log(`\n  round ${r.id} (${r.token}), pool ${r.pool}\n`);
-  for (const c of r.checks) console.log(`  ${c.ok ? 'PASS' : 'FAIL'}  ${c.what}`);
+  for (const c of r.checks) console.log(`  ${c.ok ? 'PASS' : c.warn ? 'WARN' : 'FAIL'}  ${c.what}`);
   console.log(`\n  ${r.ok ? 'verified' : 'NOT VERIFIED'}\n`);
   process.exit(r.ok ? 0 : 1);
 }

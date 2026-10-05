@@ -84,7 +84,7 @@ export class RemoteBetting {
       if (!d.onchain) this.balance = d.balance;
       this.history = d.history; this.stats = d.stats || this.stats;
       this.name = d.name;
-      this.checkPrint(d.print);
+      this.checkPrint(d.print, d.code);
       this.on.hello?.(d);
     });
     on('round', (d) => { this._round(d); this.on.round?.(d); });
@@ -118,11 +118,28 @@ export class RemoteBetting {
    * if it still differs, say so rather than show a race that is not the one
    * being paid on.
    */
-  async checkPrint(serverPrint) {
+  async checkPrint(serverPrint, serverCode) {
     if (!serverPrint) return;
     const { buildPrint } = await import('./detcheck.js');
     const mine = buildPrint();
-    this.printOk = mine === serverPrint;
+    // Same source as the server started with? (The print above only covers the rules one fixed course uses.)
+    let sourceOk = true;
+    if (serverCode && serverCode.hash && crypto.subtle) {
+      try {
+        const enc = new TextEncoder(), parts = [];
+        for (const f of serverCode.files) {
+          const bytes = new Uint8Array(await (await fetch('/' + f, { cache: 'no-store' })).arrayBuffer());
+          parts.push(enc.encode(f + '\0'), bytes, enc.encode('\0'));
+        }
+        const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+        let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
+        const hex = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', all)), b => b.toString(16).padStart(2, '0')).join('');
+        sourceOk = hex.slice(0, 16) === serverCode.hash;
+        if (!sourceOk) console.error('[race] the game code on the server changed since it started: restart the server', { served: hex.slice(0, 16), running: serverCode.hash });
+      } catch { /* offline hiccup: the print still guards */ }
+    }
+    this.printOk = mine === serverPrint && sourceOk;
+    if (!this.printOk && mine === serverPrint) { this.on.error?.('The game was updated while you were playing. Reload the page.'); return; }
     if (this.printOk) { try { sessionStorage.removeItem('marblerush.reloaded'); } catch { /* */ } return; }
     console.error('[race] this browser races differently from the server', { mine, server: serverPrint });
     let tried = false;

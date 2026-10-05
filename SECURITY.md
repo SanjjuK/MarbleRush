@@ -20,6 +20,7 @@ Please report vulnerabilities privately to the maintainers (open a private secur
 - POSTs must come from our own origin; no CORS headers are sent.
 - Rate limits: API calls per address, sign-in nonces per address, bet builds per player, open streams per address, faucet per address and per day.
 - The faucet and the round memos stop before the house wallet runs out of SOL, so payouts are the last thing to run dry.
+- A server restart mid-round refunds that round's bets (they are saved as they land) and continues the round numbering. A round's commit memo carries a hash of the race code and the git revision.
 - Payouts are written to disk with their signature before being sent, and are checked against the cluster after a crash, so they are neither lost nor paid twice.
 - Log lines never contain the RPC URL or its API key. Secrets live only in `server/data/` (git-ignored), never in the repo.
 - Text from the network is escaped before it reaches the page.
