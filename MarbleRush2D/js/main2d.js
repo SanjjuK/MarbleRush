@@ -23,6 +23,7 @@ import { buildTrack } from './track2d.js';
 import { Engine2D, SIM_DT, runRace2D, MAX_OUT } from './engine2d.js';
 import { Renderer2D } from './render2d.js';
 import { detectServer, RemoteBetting } from './net2d.js';
+import { walletProviders, signIn, signOut, WALLET_LINKS } from './wallet2d.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -31,6 +32,8 @@ const coin = (i) =>
   `<span class="coin" style="--c:${MARBLE_DATA[i].hex};--d:${MARBLE_DARK[i]}"></span>`;
 const PHASE = { BETTING: 'betting', READY: 'ready', COUNTDOWN: 'countdown', RACING: 'racing', FINISHED: 'finished' };
 const STAKES = [10, 25, 50, 100];
+/** The currency of the round on screen: its token's symbol, or the demo label. */
+const cur = () => (betting && betting.currency) || CURRENCY;
 // A hard ceiling for a race that has somehow not finished, well clear of the
 // ~3.5 minute median and the slowest race measured (5 min 19s).
 const MAX_RACE_SECONDS = 480;
@@ -131,6 +134,7 @@ function resetRoundUI() {
   settleInfo = null;
 
   $('commitment').textContent = (betting.commitment || '').slice(0, 16);
+  renderFair();
   $('resultOverlay').hidden = true;
   $('countdownOverlay').hidden = true;
   $('phaseLabel').textContent = 'Betting open';
@@ -280,7 +284,7 @@ function closeLobby() {
   const mine = betting.autoBetPlayer();
 
   autoNote = mine
-    ? `Clock expired. ${fmtAmount(mine.amount, 0)} ${CURRENCY} auto-staked on ${MARBLE_DATA[mine.marble].name}`
+    ? `Clock expired. ${fmtAmount(mine.amount, 0)} ${cur()} auto-staked on ${MARBLE_DATA[mine.marble].name}`
     : betting.placed ? 'Marbles ready'
     : 'Clock expired with no bet down';
 
@@ -562,7 +566,7 @@ function renderLobby() {
 }
 
 function renderWallet() {
-  $('balance').textContent = `${fmtAmount(betting.balance)} ${CURRENCY}`;
+  $('balance').textContent = betting.guest ? '-' : `${fmtAmount(betting.balance)} ${cur()}`;
   renderRecord();
 }
 
@@ -677,7 +681,7 @@ function renderStakes() {
   const box = $('stakes');
   box.innerHTML = '';
   if (phase !== PHASE.BETTING || betting.placed) return;
-  for (const v of STAKES) {
+  for (const v of (betting.stakes || STAKES)) {
     const b = document.createElement('button');
     b.textContent = v;
     if (betting.stake === v) b.className = 'on';
@@ -685,6 +689,24 @@ function renderStakes() {
     b.onclick = () => { betting.setStake(v); renderTote(); };
     box.appendChild(b);
   }
+}
+
+/** The "provably fair" pill says how far the round has got on Solana, and links to the transaction. */
+function renderFair() {
+  const el = document.querySelector('.fair'), label = $('fairLabel');
+  if (!el || !label) return;
+  const c = NET ? betting.chain : null;
+  let text = 'Provably fair', sig = null, sealing = false;
+  if (c && c.cluster) {
+    if (c.reveal.status === 'confirmed') { text = 'Verified on Solana'; sig = c.reveal.sig; }
+    else if (c.commit.status === 'confirmed') { text = 'Sealed on Solana'; sig = c.commit.sig; }
+    else if (c.commit.status === 'pending') { text = 'Sealing on Solana…'; sealing = true; }
+  }
+  label.textContent = text;
+  el.classList.toggle('sealing', sealing);
+  el.classList.toggle('link', !!sig);
+  el.onclick = sig ? () => window.open(explorer(sig, c.cluster), '_blank', 'noopener,noreferrer') : null;
+  el.title = sig ? 'Open this round\'s transaction on the Solana explorer' : 'The race is fixed by this hash before betting opens; the seed is revealed when the gates open.';
 }
 
 function renderBetButton() {
@@ -697,6 +719,10 @@ function renderBetButton() {
     return;
   }
   if (phase !== PHASE.BETTING) { btn.disabled = true; btn.textContent = 'Betting closed'; return; }
+  if (betting.guest) { btn.disabled = false; btn.textContent = 'Connect wallet to play'; btn.onclick = openWallet; return; }
+  if (betting.sealing) { btn.disabled = true; btn.textContent = 'Sealing round on Solana…'; return; }
+  const BET_STATES = { preparing: 'Preparing your bet…', signing: 'Approve in your wallet…', confirming: 'Confirming on Solana…' };
+  if (betting.betState && betting.betState !== 'idle') { btn.disabled = true; btn.textContent = BET_STATES[betting.betState]; return; }
   if (betting.placed) {
     btn.disabled = false;
     btn.textContent = 'READY';
@@ -705,7 +731,13 @@ function renderBetButton() {
   }
   // The empty-wallet check comes FIRST. Behind "select a marble" it never
   // showed, because picking a marble you cannot back is not the next step.
-  if (betting.balance < MIN_BET) {
+  if (betting.token && betting.balance < betting.minBet) {
+    btn.disabled = false;
+    btn.textContent = `Get test ${betting.token} to play`;
+    btn.onclick = openWallet;
+    return;
+  }
+  if (!betting.token && betting.balance < (betting.minBet ?? MIN_BET)) {
     btn.disabled = false;
     btn.textContent = 'Top up demo wallet';
     btn.onclick = () => { betting.topUp(); renderWallet(); renderTote(); };
@@ -875,11 +907,11 @@ function showResult() {
     p.className = `payout ${up ? 'win' : 'lose'}`;
     p.textContent = (up ? 'WAGMI · ' : '') +
       `${ORD[settleInfo.place]} · ${up ? '+' : '−'}${fmtAmount(Math.abs(settleInfo.profit))} ` +
-      `${CURRENCY} at ${fmtOdds(settleInfo.odds)}`;
+      `${cur()} at ${fmtOdds(settleInfo.odds)}`;
   } else if (settleInfo.backed >= 0) {
     p.className = 'payout lose';
     const ko = result.eliminated.includes(settleInfo.backed);
-    p.textContent = `−${fmtAmount(settleInfo.stake)} ${CURRENCY} on ${MARBLE_DATA[settleInfo.backed].name}` +
+    p.textContent = `−${fmtAmount(settleInfo.stake)} ${cur()} on ${MARBLE_DATA[settleInfo.backed].name}` +
                     (ko ? ', knocked out' : '');
   } else { p.className = 'payout lose'; p.textContent = 'No bet placed'; }
 
@@ -1061,6 +1093,90 @@ if ('ResizeObserver' in window) {
   for (const el of document.querySelectorAll('[data-hud]')) ro.observe(el);
 }
 $('nextRace').onclick = newRound;
+
+/* ------------------------------ the wallet ------------------------------ */
+
+function shortAddr(a) { return a ? `${a.slice(0, 4)}…${a.slice(-4)}` : ''; }
+
+/** The top-bar button, and the balance, follow who is signed in. */
+function renderAccount() {
+  const guest = !!betting.guest;
+  document.body.classList.toggle('guest', guest);
+  const b = $('walletBtn');
+  b.hidden = false;
+  b.classList.toggle('on', !guest);
+  b.textContent = guest ? 'Connect wallet' : shortAddr(betting.address);
+  b.onclick = openWallet;
+  renderWallet();
+  if (phase === PHASE.BETTING) renderBetButton();
+}
+
+const explorer = (sig, cluster) => `https://explorer.solana.com/tx/${sig}${cluster && cluster !== 'mainnet-beta' ? `?cluster=${cluster}` : ''}`;
+
+/** Each token a round can be played in: the wallet's real balance, and how to get some. */
+async function loadTokenRows() {
+  const box = $('walletTokens');
+  const info = await fetch('/api/chain').then(r => r.json()).catch(() => null);
+  if (!box || !info || !info.tokens.length) { if (box) box.innerHTML = ''; return; }
+  box.innerHTML = info.tokens.map(t =>
+    `<div class="tokrow" data-t="${t.symbol}"><span class="sym">${t.symbol}<small>${t.name}</small></span>` +
+    `<b class="bal">…</b>` +
+    (t.faucet.mode === 'mint' ? `<button class="walletopt get" data-get="${t.symbol}">Get test ${t.symbol}</button>`
+      : t.faucet.url ? `<a class="walletopt get" href="${t.faucet.url}" target="_blank" rel="noopener noreferrer">Get test ${t.symbol}</a>` : '') +
+    `</div>`).join('');
+  const setBal = async (sym) => {
+    const row = box.querySelector(`[data-t="${sym}"] .bal`);
+    const r = await fetch(`/api/balance?token=${sym}`).then(x => x.json()).catch(() => ({}));
+    if (row) row.textContent = r.balance === undefined ? '-' : fmtAmount(r.balance);
+  };
+  for (const t of info.tokens) setBal(t.symbol);
+  for (const btn of box.querySelectorAll('[data-get]')) {
+    btn.onclick = async () => {
+      btn.disabled = true; $('walletErr').textContent = '';
+      const r = await fetch('/api/faucet', { method: 'POST', body: JSON.stringify({ token: btn.dataset.get }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) $('walletErr').innerHTML = `<span style="color:var(--good)">Sent ${fmtAmount(d.amount)} ${d.symbol}.</span> <a href="${explorer(d.signature, info.cluster)}" target="_blank" rel="noopener noreferrer">View transaction</a>`;
+      else $('walletErr').textContent = d.retryInMs ? `Next ${btn.dataset.get} drop in ${Math.ceil(d.retryInMs / 3600000)}h` : (d.error || 'Faucet failed');
+      btn.disabled = false;
+      setBal(btn.dataset.get);
+    };
+  }
+}
+
+function openWallet(err = '') {
+  const card = $('walletCard');
+  const msg = typeof err === 'string' ? err : '';
+  if (!betting.guest) {
+    card.innerHTML =
+      `<p class="kicker">Your wallet</p><code class="walletaddr">${betting.address}</code>` +
+      `<p class="note">Signed in on Solana devnet. Other players see you as <b>${shortAddr(betting.address)}</b>.</p>` +
+      `<div id="walletTokens"></div><p class="walleterr" id="walletErr"></p>` +
+      `<button id="walletOut" class="cta">Disconnect</button>`;
+    $('walletOut').onclick = async () => { await signOut(); location.reload(); };
+    loadTokenRows();
+  } else {
+    const found = walletProviders();
+    card.innerHTML =
+      `<p class="kicker">Connect a wallet</p>` +
+      `<p class="note">Sign a free message to play. It sends no transaction, costs no fee and gives us no access to your funds.</p>` +
+      (found.length
+        ? found.map(w => `<button class="walletopt" data-w="${w.id}">${w.name}<small>Detected</small></button>`).join('')
+        : `<p class="note">No Solana wallet found in this browser. Install one, then reload:</p>` +
+          WALLET_LINKS.map(l => `<a class="walletopt" href="${l.url}" target="_blank" rel="noopener noreferrer">${l.name}<small>Install</small></a>`).join('')) +
+      `<p class="walleterr" id="walletErr">${msg}</p><button id="walletClose" class="cta">Close</button>`;
+    for (const btn of card.querySelectorAll('[data-w]')) {
+      btn.onclick = async () => {
+        btn.disabled = true; $('walletErr').textContent = '';
+        try { await signIn(found.find(w => w.id === btn.dataset.w)); location.reload(); }
+        catch (e) { btn.disabled = false; $('walletErr').textContent = e.message || 'Sign-in failed'; }
+      };
+    }
+    $('walletClose').onclick = () => { $('walletOverlay').hidden = true; };
+  }
+  $('walletOverlay').hidden = false;
+}
+$('walletOverlay').onclick = (e) => { if (e.target === $('walletOverlay')) $('walletOverlay').hidden = true; };
+
 $('helpBtn').onclick = () => { $('helpOverlay').hidden = false; };
 $('helpClose').onclick = () => { $('helpOverlay').hidden = true; };
 $('helpOverlay').onclick = (e) => { if (e.target === $('helpOverlay')) $('helpOverlay').hidden = true; };
@@ -1077,7 +1193,13 @@ buildCamBar();
       pool: () => { renderTote(); renderFeed(); if (phase === PHASE.READY) renderBetButton(); },
       sync: onNetSync,
       settled: onNetSettled,
-      changed: () => { renderTote(); renderWallet(); },
+      hello: renderAccount,
+      payout: (d) => {
+        if (d.status !== 'confirmed' || !d.sigs.length || !betting.settled || betting.settled.id !== d.id || !betting.settled.you?.payout) return;
+        announce(`<span class="msg"><b>Paid out on Solana.</b> <a href="${explorer(d.sigs[0], betting.cluster)}" target="_blank" rel="noopener noreferrer">View transaction</a></span>`, 'in');
+      },
+      chain: () => { renderFair(); if (phase === PHASE.BETTING) renderBetButton(); },
+      changed: () => { renderTote(); renderWallet(); renderStakes(); renderBetButton(); },
       error: (msg) => announce(`<span class="msg">${msg}</span>`, 'out'),
     });
   } else newRound();

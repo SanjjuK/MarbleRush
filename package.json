@@ -6,10 +6,21 @@
   "description": "Parimutuel marble racing. The authoritative race runs headless in Node; the browser replays it.",
   "scripts": {
     "dev": "MR_ROOT=\"$PWD\" python3 tools/serve.py",
-    "simulate": "node tools/simulate.js"
+    "simulate": "node tools/simulate.js",
+    "chain:setup": "node MarbleRush2D/tools/chain-setup.mjs",
+    "build:vendor": "node MarbleRush2D/tools/build-vendor.mjs",
+    "start": "node MarbleRush2D/server/server.mjs",
+    "test:e2e": "node MarbleRush2D/tools/server-e2e.mjs",
+    "test:chain": "node MarbleRush2D/tools/chain-e2e.mjs && node MarbleRush2D/tools/chain-bets-e2e.mjs",
+    "verify-round": "node MarbleRush2D/tools/verify-round.mjs"
   },
   "dependencies": {
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.99.0",
     "cannon-es": "0.20.0",
     "three": "0.169.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

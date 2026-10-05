@@ -11,8 +11,12 @@
 //   6. settlement: each player's balance moves by exactly what the tote says
 //   7. the next round opens
 //
+// and the wallet sign-in the whole thing now sits behind: every player here
+// is a fresh ed25519 key that signs the server's message, as a wallet does;
+// bad signatures, reused nonces and signed-out betting are refused.
+//
 //   node MarbleRush2D/tools/server-e2e.mjs
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,15 +35,34 @@ const base = `http://localhost:${PORT}`;
 let failures = 0;
 const check = (ok, what) => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${what}`); if (!ok) failures++; };
 
+const { b58encode } = await import('../server/auth.mjs');
 const server = await start(PORT);
 
+/** A wallet: a fresh ed25519 key. The address is its public key in base58. */
+function newWallet() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const address = b58encode(publicKey.export({ format: 'der', type: 'spki' }).subarray(-32));
+  return { address, sign: (msg) => sign(null, Buffer.from(msg), privateKey).toString('base64') };
+}
+const json = async (path, body, headers = {}) => {
+  const r = await fetch(`${base}/api/${path}`, { method: 'POST', body: JSON.stringify(body), headers });
+  return { code: r.status, body: await r.json(), cookie: r.headers.get('set-cookie') };
+};
+/** The sign-in a wallet does: ask for a message, sign it, trade it for a session cookie. */
+async function signIn(w = newWallet()) {
+  const n = await json('auth/nonce', { address: w.address });
+  const v = await json('auth/verify', { address: w.address, nonce: n.body.nonce, signature: w.sign(n.body.message) });
+  return { w, nonce: n.body, verify: v, cookie: v.cookie && v.cookie.split(';')[0] };
+}
+
 /** A player: an SSE stream parsed into events, and a way to wait for one. */
-function player(pid) {
+function player(login) {
+  const pid = login.w.address, cookie = login.cookie;
   const events = [];
   const waiters = [];
   const ctrl = new AbortController();
   (async () => {
-    const res = await fetch(`${base}/api/events?pid=${pid}`, { signal: ctrl.signal });
+    const res = await fetch(`${base}/api/events`, { signal: ctrl.signal, headers: cookie ? { cookie } : {} });
     const dec = new TextDecoder();
     let buf = '';
     for await (const chunk of res.body) {
@@ -62,13 +85,48 @@ function player(pid) {
       if (hit) return Promise.resolve(hit);
       return new Promise((ok, no) => { waiters.push({ pred, ok }); setTimeout(() => no(new Error('timeout')), ms); });
     },
-    post: async (p, body) => { const r = await fetch(`${base}/api/${p}?pid=${pid}`, { method: 'POST', body: JSON.stringify(body) }); return { code: r.status, body: await r.json() }; },
+    post: async (p, body) => { const r = await fetch(`${base}/api/${p}`, { method: 'POST', body: JSON.stringify(body), headers: { cookie } }); return { code: r.status, body: await r.json() }; },
     close: () => ctrl.abort(),
   };
 }
 
-const A = player('alicealice01'), B = player('bobbobbob02');
 console.log('\n  round server, end to end\n');
+
+// --- sign-in -------------------------------------------------------------
+const la = await signIn(), lb = await signIn();
+check(la.verify.code === 200 && /HttpOnly/.test(la.verify.cookie) && /SameSite=Lax/.test(la.verify.cookie), 'a valid signature signs in, with an HttpOnly SameSite cookie');
+check(la.nonce.message.includes(la.w.address) && la.nonce.message.includes(`localhost:${PORT}`), 'the message names the address and this site');
+check(la.verify.body.name === `${la.w.address.slice(0, 4)}…${la.w.address.slice(-4)}`, 'players are shown as a short address, never the full one');
+{
+  const w = newWallet(), other = newWallet();
+  let n = await json('auth/nonce', { address: w.address });
+  check((await json('auth/verify', { address: w.address, nonce: n.body.nonce, signature: other.sign(n.body.message) })).code === 401, 'a signature from a different key is refused');
+  n = await json('auth/nonce', { address: w.address });
+  check((await json('auth/verify', { address: w.address, nonce: n.body.nonce, signature: w.sign(n.body.message + ' ') })).code === 401, 'a signature over a different message is refused');
+  n = await json('auth/nonce', { address: w.address });
+  const sig = w.sign(n.body.message);
+  check((await json('auth/verify', { address: other.address, nonce: n.body.nonce, signature: sig })).code === 401, 'a nonce issued to one address cannot sign in another');
+  n = await json('auth/nonce', { address: w.address });
+  const first = await json('auth/verify', { address: w.address, nonce: n.body.nonce, signature: w.sign(n.body.message) });
+  const again = await json('auth/verify', { address: w.address, nonce: n.body.nonce, signature: w.sign(n.body.message) });
+  check(first.code === 200 && again.code === 401, 'a nonce works once');
+  check((await json('auth/nonce', { address: 'not-an-address' })).code === 400, 'a malformed address gets no nonce');
+}
+check((await json('bet', { marble: 0, amount: 10 })).code === 401, 'betting without signing in is refused');
+check((await json('auth/nonce', { address: la.w.address }, { origin: 'https://evil.example' })).code === 403, 'a POST from another site is refused');
+{
+  const ctrl = new AbortController();
+  const spectator = await fetch(`${base}/api/events`, { signal: ctrl.signal });
+  const first = new TextDecoder().decode((await spectator.body.getReader().read()).value);
+  check(/"guest":true/.test(first), 'a signed-out visitor gets a spectator hello with no balance');
+  ctrl.abort();
+}
+const lo = await signIn();
+check((await fetch(`${base}/api/topup`, { method: 'POST', body: '{}', headers: { cookie: lo.cookie } })).status === 409, 'a session works for a POST');
+await json('auth/logout', {}, { cookie: lo.cookie });
+check((await fetch(`${base}/api/topup`, { method: 'POST', body: '{}', headers: { cookie: lo.cookie } })).status === 401, 'after logout the same cookie is dead');
+
+const A = player(la), B = player(lb);
 // Start clean: wait for a fresh betting round (the first may be half gone).
 let ra = await A.wait(e => e.type === 'round' && e.data.phase === 'betting');
 const id = ra.data.id;
@@ -84,7 +142,7 @@ check(r.code === 200, 'A bets 50 on marble 0');
 r = await B.post('bet', { marble: 1, amount: 25 });
 check(r.code === 200, 'B bets 25 on marble 1');
 check((await A.post('bet', { marble: 2, amount: 10 })).code === 409, 'a second bet in one round is refused');
-const C = player('carolcarol03');
+const C = player(await signIn());
 await C.wait(e => e.type === 'hello');
 check((await C.post('bet', { marble: 7, amount: 10 })).code === 400, 'a bet on a marble that does not exist is refused');
 check((await C.post('bet', { marble: 0, amount: 1e9 })).code === 400, 'a stake bigger than the wallet is refused');
@@ -98,7 +156,7 @@ check((await C.post('bet', { marble: 0, amount: 10 })).code === 409, 'betting af
 const seed = racing.data.raceSeed;
 check(!!seed && createHash('sha256').update(seed).digest('hex') === ra.data.commitment, 'the revealed race seed hashes to the published commitment');
 const cBet = racing.data.bets.find(b => b.human && b.auto);
-check(!!cBet, 'the player who never bet was auto-staked the minimum at the close');
+check(!cBet && racing.data.bets.filter(b => b.human).length === 2, 'a player who never bets is not staked for: they watch (only the two real bets are in)');
 
 // Replay it the way a browser does.
 const track = buildTrack(makeRng(racing.data.courseSeed), racing.data.blocks ? { count: racing.data.blocks } : {});

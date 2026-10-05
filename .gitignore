@@ -6,6 +6,7 @@
 !/js/
 !/tools/
 !/package.json
+!/package-lock.json
 
 # Inside the allowed folders, still leave out:
 .DS_Store

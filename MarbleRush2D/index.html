@@ -30,12 +30,13 @@
     <div class="right">
       <span class="fair" title="The race is fixed by this hash before betting opens; the seed is revealed when the gates open.">
         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1l6 2.5v4.2c0 3.6-2.6 6.3-6 7.3-3.4-1-6-3.7-6-7.3V3.5L8 1zm-1 9.2l4.6-4.6-1.1-1.1L7 8l-1.5-1.5-1.1 1.1L7 10.2z"/></svg>
-        <span>Provably fair</span><code id="commitment">-</code>
+        <span id="fairLabel">Provably fair</span><code id="commitment">-</code>
       </span>
       <div class="wallet">
         <span>Balance</span>
         <strong id="balance">-</strong>
       </div>
+      <button id="walletBtn" class="walletbtn" hidden>Connect wallet</button>
       <button id="helpBtn" class="iconbtn" title="How MarbleRush works" aria-label="How it works">?</button>
     </div>
   </header>
@@ -131,6 +132,10 @@
       <button id="nextRace" class="cta">Next race</button>
       <p class="nextnote" id="nextNote"></p>
     </div>
+  </div>
+
+  <div class="overlay modal" id="walletOverlay" hidden>
+    <div class="card help" id="walletCard"></div>
   </div>
 
   <div class="overlay modal" id="helpOverlay" hidden>

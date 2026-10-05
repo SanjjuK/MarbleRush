@@ -11,10 +11,10 @@
 // server says it did.
 
 import { MARBLE_DATA } from '../../js/racers.js';
-import { PLACE_SHARES, RAKE, MIN_BET, STARTING_BALANCE } from '../../js/betting.js';
+import { PLACE_SHARES, RAKE, MIN_BET, CURRENCY } from '../../js/betting.js';
+import { signBet } from './wallet2d.js';
 
 const K = MARBLE_DATA.length;
-const PID_KEY = 'marblerush.pid';
 
 /** Is this page being served by the round server? */
 export async function detectServer() {
@@ -24,24 +24,15 @@ export async function detectServer() {
   } catch { return false; }
 }
 
-function playerId() {
-  let id = null;
-  try { id = localStorage.getItem(PID_KEY); } catch { /* private mode */ }
-  if (!id || !/^[a-z0-9]{8,40}$/i.test(id)) {
-    id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
-    try { localStorage.setItem(PID_KEY, id); } catch { /* fine, this tab only */ }
-  }
-  return id;
-}
-
 export class RemoteBetting {
   /** `on` receives { hello, round, pool, sync, settled } callbacks. */
   constructor(on) {
-    this.pid = playerId();
     this.on = on;
     this.remote = true;
 
-    this.balance = STARTING_BALANCE;
+    this.guest = true;              // until the server says who we are
+    this.address = '';
+    this.balance = 0;
     this.history = [];
     this.stats = { races: 0, wins: 0, wagered: 0, returned: 0, best: 0, streak: 0, bestStreak: 0 };
     this.round = 0;
@@ -59,6 +50,13 @@ export class RemoteBetting {
     this.ready = 0;
     this.players = 1;
     this.settled = null;
+    this.chains = new Map();        // round id -> what is on Solana for it
+    this.payouts = new Map();       // round id -> { status, sigs }
+    this.token = null;              // the round's token symbol; null: server demo money
+    this.minBetV = MIN_BET;
+    this.tokenMeta = {};            // symbol -> { stakes, minBet, decimals } from /api/chain
+    this.betState = 'idle';         // idle | preparing | signing | confirming
+    fetch('/api/chain').then(r => r.json()).then(i => { for (const t of i.tokens) this.tokenMeta[t.symbol] = t; this.cluster = i.cluster; this.on.changed?.(); }).catch(() => {});
     this.offsets = [];              // server clock minus ours, per message
     this.connect();
   }
@@ -77,11 +75,14 @@ export class RemoteBetting {
   /* ---------------------------- connection ----------------------------- */
 
   connect() {
-    const es = new EventSource(`/api/events?pid=${this.pid}`);
+    const es = new EventSource('/api/events');   // the session cookie says who we are
     this.es = es;
     const on = (type, fn) => es.addEventListener(type, (e) => { const d = JSON.parse(e.data); this._clock(d.now); fn(d); });
     on('hello', (d) => {
-      this.balance = d.balance; this.history = d.history; this.stats = d.stats;
+      this.guest = !!d.guest;
+      this.address = d.pid || '';
+      if (!d.onchain) this.balance = d.balance;
+      this.history = d.history; this.stats = d.stats || this.stats;
       this.name = d.name;
       this.checkPrint(d.print);
       this.on.hello?.(d);
@@ -89,8 +90,19 @@ export class RemoteBetting {
     on('round', (d) => { this._round(d); this.on.round?.(d); });
     on('pool', (d) => { if (d.id === this.round) { this._pool(d); this.on.pool?.(d); } });
     on('sync', (d) => this.on.sync?.(d));
+    on('payout', (d) => {
+      this.payouts.set(d.id, d);
+      if (d.status === 'confirmed') this.refreshBalance();
+      this.on.payout?.(d);
+    });
+    on('chain', (d) => {
+      this.chains.set(d.id, d);
+      for (const k of this.chains.keys()) if (k < d.id - 4) this.chains.delete(k);
+      this.on.chain?.(d);
+    });
     on('settled', (d) => {
-      this.balance = d.balance; this.history = d.history; this.stats = d.stats;
+      if (d.balance !== undefined) this.balance = d.balance;
+      this.history = d.history; this.stats = d.stats;
       this.settled = d;
       this.on.settled?.(d);
     });
@@ -119,13 +131,37 @@ export class RemoteBetting {
     else this.on.error?.('This browser cannot replay the live race exactly. Results still come from the server.');
   }
 
+  /** Stake sizes for this round: the token's, or the demo defaults. */
+  get stakes() { return (this.token && this.tokenMeta[this.token]?.stakes) || [10, 25, 50, 100]; }
+  get minBet() { return this.token ? (this.tokenMeta[this.token]?.minBet ?? this.minBetV) : MIN_BET; }
+  get currency() { return this.token || CURRENCY; }
+
+  /** The wallet's real balance of this round's token, read from Solana by the server. */
+  async refreshBalance() {
+    if (this.guest || !this.token) return;
+    if (this._balBusy) { this._balAgain = true; return; }     // one request at a time; ask again after it
+    this._balBusy = true;
+    try {
+      const sym = this.token;
+      const r = await fetch(`/api/balance?token=${sym}`).then(x => x.ok ? x.json() : null).catch(() => null);
+      if (r && sym === this.token) { this.balance = r.balance; this.on.changed?.(); }
+    } finally {
+      this._balBusy = false;
+      if (this._balAgain) { this._balAgain = false; this.refreshBalance(); }
+    }
+  }
+
   _round(d) {
     if (d.id !== this.round) {
       this.round = d.id;
       this.selected = -1;
       this.placed = false;
       this.settled = null;
-      this.stake = Math.min(this.stakePref, Math.max(MIN_BET, Math.floor(this.balance)));
+      this.token = d.token || null;
+      this.minBetV = d.minBet || MIN_BET;
+      const st = this.stakes;
+      this.stake = st.includes(this.stakePref) ? this.stakePref : st[Math.min(1, st.length - 1)];
+      if (this.token) this.refreshBalance();
     }
     this.seed = d.raceSeed || '';
     this.commitment = d.commitment;
@@ -141,15 +177,20 @@ export class RemoteBetting {
   }
 
   async _post(path, body) {
-    const r = await fetch(`/api/${path}?pid=${this.pid}`, { method: 'POST', body: JSON.stringify(body || {}) });
+    const r = await fetch(`/api/${path}`, { method: 'POST', body: JSON.stringify(body || {}) });
     return { ok: r.ok, body: await r.json().catch(() => ({})) };
   }
 
   /* -------------------- the BettingManager surface -------------------- */
 
+  /** What Solana holds for the round on screen: { cluster, token, commit, reveal } or null. */
+  get chain() { return this.chains.get(this.round) || null; }
+  /** True while the commit is on its way: the server refuses bets until it lands. */
+  get sealing() { return this.chain?.commit.status === 'pending'; }
+
   get totalPool() { return this.pools.reduce((a, b) => a + b, 0); }
   get netPool() { return this.totalPool * (1 - RAKE); }
-  get maxStake() { return Math.floor(this.balance); }
+  get maxStake() { return Math.floor(this.balance * 100) / 100; }
   get netProfit() { return this.stats.returned - this.stats.wagered; }
   get winRate() { return this.stats.races ? this.stats.wins / this.stats.races : 0; }
 
@@ -165,10 +206,10 @@ export class RemoteBetting {
     return { payout: at(0), profit: at(0) - stake, odds: at(0) / stake, place: at(1), placeOdds: at(1) / stake, pool };
   }
 
-  canAfford(v) { return v >= MIN_BET && v <= this.balance; }
+  canAfford(v) { return !this.guest && v >= this.minBet - 1e-9 && v <= this.balance + 1e-9; }
   select(i) { this.selected = i; }
   setStake(v) {
-    this.stake = Math.max(MIN_BET, Math.min(this.maxStake, Math.round(v)));
+    this.stake = Math.max(this.minBet, Math.min(this.maxStake, Math.round(v * 100) / 100));
     this.stakePref = this.stake;
     try { localStorage.setItem('marblerush.stake', String(this.stake)); } catch { /* */ }
     return this.stake;
@@ -176,7 +217,8 @@ export class RemoteBetting {
 
   /** Ask the server for the bet. Optimistic: the board updates when it says so. */
   placeBet() {
-    if (this.placed || this.selected < 0 || !this.canAfford(this.stake)) return false;
+    if (this.guest || this.placed || this.selected < 0 || this.betState !== 'idle' || !this.canAfford(this.stake)) return false;
+    if (this.token) { this._placeSigned(this.selected, this.stake); return true; }
     this.placed = true;
     this.balance -= this.stake;
     const marble = this.selected, amount = this.stake;
@@ -186,6 +228,28 @@ export class RemoteBetting {
       this.on.changed?.();
     });
     return true;
+  }
+
+  /**
+   * A bet in real tokens: the server builds a transaction (stake into the vault, a memo naming the
+   * round and marble, the server paying the fee), the wallet signs it, the server sends it and
+   * waits for Solana. The bet exists once it has landed; until then nothing is on the board.
+   */
+  async _placeSigned(marble, amount) {
+    const fail = (msg) => { this.betState = 'idle'; this.on.error?.(msg); this.on.changed?.(); this.refreshBalance(); };
+    try {
+      this.betState = 'preparing'; this.on.changed?.();
+      const prep = await this._post('bet/prepare', { marble, amount });
+      if (!prep.ok) return fail(prep.body.error || 'bet refused');
+      this.betState = 'signing'; this.on.changed?.();
+      const tx = await signBet(this.address, prep.body.tx);
+      this.betState = 'confirming'; this.on.changed?.();
+      const sent = await this._post('bet/submit', { prepId: prep.body.prepId, tx });
+      if (!sent.ok) return fail(sent.body.error || 'the bet did not go through');
+      this.placed = true; this.betState = 'idle'; this.lastBetSig = sent.body.signature;
+      this.balance = Math.max(0, this.balance - amount);
+      this.on.changed?.(); this.refreshBalance();
+    } catch (e) { fail(e.message || 'the bet did not go through'); }
   }
 
   sendReady() { return this._post('ready'); }

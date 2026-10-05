@@ -109,9 +109,38 @@ body.racing .live { display: inline-block; }
   font: 600 11px var(--sans); white-space: nowrap;
 }
 .fair code { color: #b6f2cf; font-size: 10.5px; }
+.fair.link { cursor: pointer; }
+.fair.link:hover { background: rgba(67, 201, 139, 0.16); }
+.fair.sealing { color: var(--gold-2); background: var(--gold-dim); border-color: var(--gold-line); }
 .wallet { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
 .wallet span { font: 700 10px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
-.wallet strong { font: 700 16px var(--mono); font-variant-numeric: tabular-nums; }
+.wallet strong { font: 700 16px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.walletbtn {
+  height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--gold-line);
+  background: var(--gold-dim); color: var(--gold-2); font: 700 12px var(--sans); letter-spacing: 0.04em;
+  cursor: pointer; white-space: nowrap; transition: background .15s;
+}
+.walletbtn:hover { background: rgba(214, 178, 90, 0.24); }
+.walletbtn.on { font-family: var(--mono); color: var(--text); border-color: var(--stroke-hi); background: rgba(255,255,255,0.05); }
+.walletbtn.on::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--good); }
+body.net .walletbtn { display: inline-flex; align-items: center; }
+body.net.guest .wallet { display: none; }
+.walletopt {
+  display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 14px; margin: 0 0 8px;
+  border-radius: var(--radius-s); border: 1px solid var(--stroke-hi); background: rgba(255,255,255,0.05);
+  color: var(--text); font: 700 14px var(--sans); cursor: pointer; transition: background .15s;
+}
+.walletopt:hover { background: rgba(255,255,255,0.11); }
+.walletopt small { color: var(--muted); font-weight: 500; }
+.walletaddr { display: block; margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius-s); background: rgba(255,255,255,0.05);
+  font: 600 12px var(--mono); word-break: break-all; color: var(--text); }
+.tokrow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--stroke); }
+.tokrow .sym { font: 700 14px var(--sans); display: flex; flex-direction: column; line-height: 1.2; }
+.tokrow .sym small { font-weight: 500; font-size: 11px; color: var(--muted); }
+.tokrow .bal { font: 700 14px var(--mono); font-variant-numeric: tabular-nums; }
+.tokrow .get { width: auto; margin: 0; padding: 7px 10px; font-size: 12px; text-decoration: none; }
+.walleterr a { color: var(--gold-2); }
+.walleterr { color: var(--bad); font-size: 12px; margin: 4px 0 10px; min-height: 1em; }
 .iconbtn {
   width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--stroke-hi);
   background: rgba(255,255,255,0.05); font-weight: 700; cursor: pointer; transition: background .15s;
