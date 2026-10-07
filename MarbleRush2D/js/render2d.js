@@ -16,16 +16,37 @@ import { TRACK_W } from './track2d.js';
 import { paintScenes, paintPops } from './scenes2d.js';
 
 /**
- * The course's own colours, in the Map 1 palette (2026-09-26): a warm
- * charcoal stage instead of navy, machined-steel rails, gunmetal pegs and
- * champagne gold, matching the page around it.
+ * The course's own colours. The neutral parts (page, column, walls, pegs) come
+ * from the design tokens in css/tokens.css so the canvas and the HUD around it
+ * are one palette; the values below are the same tokens as a fallback for
+ * anything that imports this without a page (the Node tools). Signal colours
+ * (green open, red closed, cryo blue, warp purple) are NOT tokens: they mean
+ * something on the course and stay as they are.
  */
 const C = {
-  bgTop: '#0e1016', bgBot: '#07080c',
-  wall: '#8a92a5', wallEdge: '#1b1e27', wallHi: 'rgba(236,239,245,0.28)',
-  peg: '#4b5263', ink: '#14161d',
+  bg: '#0E0C0A', ground: '#16130F',
+  bgTop: '#0E0C0A', bgBot: '#0E0C0A',
+  wall: '#4A4036', wallEdge: '#2F2822', wallHi: 'rgba(237,230,220,0.18)',
+  peg: 'rgba(166,157,145,0.55)', ink: '#16130F', gate: '#B3AA9E',
   gold: '#f0cd7c', goldDeep: '#d6b25a',
 };
+
+/** Re-read the neutral colours from the page's tokens (cheap; called when a renderer is made). */
+function readTheme() {
+  if (typeof document === 'undefined') return;
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name) => cs.getPropertyValue(name).trim();
+  const bg = v('--bg'), ground = v('--ground'), edge = v('--track-edge'), strong = v('--line-strong'), t3 = v('--text-3');
+  if (bg) C.bg = C.bgTop = C.bgBot = bg;
+  if (ground) C.ground = C.ink = ground;
+  if (edge) C.wallEdge = edge;
+  if (strong) C.wallHi = strong;
+  if (v('--text-2')) C.gate = v('--text-2');
+  if (t3 && /^#[0-9a-f]{6}$/i.test(t3)) {
+    const n = parseInt(t3.slice(1), 16);
+    C.peg = `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},0.55)`;
+  }
+}
 
 const MIN_VIEW_H = 640;     // world units always visible vertically
 const MAX_SCALE  = 1.35;
@@ -40,6 +61,7 @@ function s_quiet(trays, gt) {
 
 export class Renderer2D {
   constructor(canvas, engine, racers) {
+    readTheme();
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.engine = engine;
@@ -171,7 +193,7 @@ export class Renderer2D {
     for (const g of this.gone) g.t += dt;
     for (const ev of this.warpQueue || []) {
       this.bursts.push({ x: ev.fromX, y: ev.fromY, t: 0, color: '#ffffff' });
-      this.bursts.push({ x: ev.toX, y: ev.toY, t: 0, color: ev.dir > 0 ? '#bfe8ff' : '#9aa3b5' });
+      this.bursts.push({ x: ev.toX, y: ev.toY, t: 0, color: ev.dir > 0 ? '#bfe8ff' : '#aba6a1' });
       this.trails[ev.index].length = 0;       // no streak across the screen
     }
     this.warpQueue = [];
@@ -279,10 +301,7 @@ export class Renderer2D {
     const dpr = this._dpr, sc = this.scale;
 
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const bg = g.createLinearGradient(0, 0, 0, this.ch);
-    bg.addColorStop(0, C.bgTop);
-    bg.addColorStop(1, C.bgBot);
-    g.fillStyle = bg;
+    g.fillStyle = C.bg;
     g.fillRect(0, 0, this.cw, this.ch);
 
     // Origin of the world inside the clear rectangle, not the window.
@@ -309,7 +328,7 @@ export class Renderer2D {
       canvas.height = Math.round(h * dpr);
     }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#0c0d12';
+    g.fillStyle = C.bg;
     g.fillRect(0, 0, w, h);
     if (!subject) return;
 
@@ -330,6 +349,10 @@ export class Renderer2D {
   _world(g, top, bot) {
     const E = this.engine, t = E.track;
 
+    // --- the column the marbles run in: the design's --ground against the page's --bg ---
+    g.fillStyle = C.ground;
+    g.fillRect(t.wallL, top - 4, t.wallR - t.wallL, bot - top + 8);
+
     // --- section bands, with the name set into the background ---
     g.textAlign = 'center';
     for (const s of t.sections) {
@@ -337,7 +360,7 @@ export class Renderer2D {
       g.fillStyle = 'rgba(255,255,255,0.022)';
       g.fillRect(t.wallL, s.y0, t.wallR - t.wallL, s.y1 - s.y0);
       g.fillStyle = 'rgba(255,255,255,0.10)';
-      g.font = '800 30px system-ui, -apple-system, sans-serif';
+      g.font = '700 30px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.fillText(s.name.toUpperCase(), TRACK_W / 2, s.y0 + 52);
     }
 
@@ -351,7 +374,7 @@ export class Renderer2D {
       g.fillRect(o.x0, o.y0, o.x1 - o.x0, o.y1 - o.y0);
       g.save();
       g.beginPath(); g.rect(o.x0, o.y0, o.x1 - o.x0, o.y1 - o.y0); g.clip();
-      g.strokeStyle = 'rgba(255, 210, 63, 0.05)';
+      g.strokeStyle = 'rgba(166, 157, 145, 0.07)';
       g.lineWidth = 6;
       g.beginPath();
       for (let k = o.x0 - (o.y1 - o.y0); k < o.x1; k += 26) {
@@ -359,9 +382,9 @@ export class Renderer2D {
       }
       g.stroke();
       g.restore();
-      g.font = '800 12px system-ui, -apple-system, sans-serif';
+      g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'center';
-      g.fillStyle = 'rgba(255, 210, 63, 0.35)';
+      g.fillStyle = 'rgba(166, 157, 145, 0.45)';
       g.fillText('OFF TRACK', (o.x0 + o.x1) / 2, o.y0 + 24);
     }
 
@@ -369,7 +392,7 @@ export class Renderer2D {
     for (const p of t.pits || []) {
       if (p.y1 < top - 60 || p.y0 > bot + 60) continue;
       const gr = g.createLinearGradient(0, p.y0 - 40, 0, p.y1);
-      gr.addColorStop(0, E.armed ? 'rgba(255,60,60,0.16)' : 'rgba(120,130,160,0.08)');
+      gr.addColorStop(0, E.armed ? 'rgba(255,60,60,0.16)' : 'rgba(144, 137, 129, 0.08)');
       gr.addColorStop(1, 'rgba(0,0,0,0.55)');
       g.fillStyle = gr;
       g.fillRect(p.x0 - 2, p.y0 - 40, p.x1 - p.x0 + 4, p.y1 - p.y0 + 40);
@@ -496,7 +519,7 @@ export class Renderer2D {
       for (const b of blocks.values()) {
         const cx = (b.x0 + b.x1) / 2;
         if (b.gt.label === 'FLASH CRASH' || b.gt.label === 'RUG PULL') {
-          g.font = '800 12px system-ui, -apple-system, sans-serif';
+          g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
           g.fillStyle = b.isOpen ? '#ff5a78' : 'rgba(255,190,200,0.8)';
           g.fillText(b.isOpen ? (b.gt.label === 'RUG PULL' ? 'RUGGED!' : 'CRASH!') : b.gt.label, cx, b.y - 16);
@@ -506,7 +529,7 @@ export class Renderer2D {
           const key = b.gt.label || 'x';
           if (!quiet.has(key)) {
             quiet.add(key);
-            g.font = '800 13px system-ui, -apple-system, sans-serif';
+            g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif';
             const a = tags.get(key);
             g.textAlign = 'center';
             g.fillStyle = '#ffd98a';
@@ -524,7 +547,7 @@ export class Renderer2D {
             g.lineWidth = 2; g.strokeStyle = on ? '#b7ffd2' : '#ff5a4e';
             g.beginPath(); g.arc(cx - 40 + k * 40, b.y - 62, 11, 0, Math.PI * 2); g.stroke();
           });
-          g.font = '800 14px system-ui, -apple-system, sans-serif';
+          g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
           g.fillStyle = b.isOpen ? '#3fd97e' : '#ffd98a';
           g.fillText(b.isOpen ? `CONSENSUS ${n}/3 · RELEASED` : `VALIDATORS ${n}/3 · NEED 2`, cx, b.y - 86);
@@ -539,7 +562,7 @@ export class Renderer2D {
         g.beginPath(); g.moveTo(cx - 150, b.y - 58); g.lineTo(cx + 150, b.y - 58); g.stroke();
         g.strokeStyle = b.isOpen ? '#3fd97e' : C.goldDeep;
         g.beginPath(); g.moveTo(cx - 150, b.y - 58); g.lineTo(cx - 150 + 300 * frac, b.y - 58); g.stroke();
-        g.font = '800 15px system-ui, -apple-system, sans-serif';
+        g.font = '700 15px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
         g.fillStyle = b.isOpen ? '#3fd97e' : '#ffd98a';
         if (b.gt.label) {
@@ -551,7 +574,7 @@ export class Renderer2D {
           for (const m of E.marbles) if (!m.out && m.x > b.x0 - 60 && m.x < b.x1 + 60 && m.y > b.y - 90 && m.y < b.y + 30) pending++;
           const gwei = 6 + pending * pending * 7;
           g.fillText(b.isOpen ? 'BLOCK MINED · RELEASE' : `NEXT BLOCK ${secs.toFixed(1)}s`, cx, b.y - 72);
-          g.font = '600 12px "JetBrains Mono", ui-monospace, Menlo, monospace';
+          g.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.fillStyle = 'rgba(255,217,138,0.75)';
           g.fillText(`pending tx ${pending} · gas ${gwei} gwei`, cx, b.y - 38);
         }
@@ -585,7 +608,7 @@ export class Renderer2D {
       g.beginPath(); g.moveTo(s.ax + side, s.ay); g.lineTo(s.ax + side, s.by); g.stroke();
       g.strokeStyle = isOpen ? '#3fd97e' : '#ff5a4e';
       g.beginPath(); g.moveTo(s.ax + side, s.by); g.lineTo(s.ax + side, s.by - len * left); g.stroke();
-      g.font = '800 11px system-ui, -apple-system, sans-serif';
+      g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'center';
       g.fillStyle = isOpen ? '#3fd97e' : '#ff5a4e';
       g.fillText(isOpen ? 'OPEN' : 'SHUT', s.ax + side * 2.2, s.ay - 10);
@@ -674,8 +697,8 @@ export class Renderer2D {
 
     // --- start gate ---
     if (!E.gateOpen) {
-      g.strokeStyle = '#ff5a4e';
-      g.lineWidth = 9;
+      g.strokeStyle = C.gate;            // the design's quiet bar, not a red line
+      g.lineWidth = 8;
       g.beginPath();
       g.moveTo(t.gate.ax, t.gate.ay);
       g.lineTo(t.gate.bx, t.gate.by);
@@ -698,7 +721,7 @@ export class Renderer2D {
       const ox = -p.nx * (16 - depth), oy = -p.ny * (16 - depth);
       // Coil: a zigzag between the plate and its base, below the surface.
       g.lineWidth = 3;
-      g.strokeStyle = '#9fb3d9';
+      g.strokeStyle = '#c3b9af';
       g.beginPath();
       const n = 7;
       for (let j = 0; j <= n; j++) {
@@ -727,7 +750,7 @@ export class Renderer2D {
       const hot = s.tick >= 0 && s.tick < 46;
       g.lineCap = 'round';
       g.lineWidth = f.fr * 2 + 4;
-      g.strokeStyle = hot ? C.gold : '#d8dce6';
+      g.strokeStyle = hot ? C.gold : '#e1dedb';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       g.lineWidth = f.fr * 2 - 3;
       g.strokeStyle = hot ? '#ff9f1c' : '#ff5a4e';
@@ -789,7 +812,7 @@ export class Renderer2D {
         }
         g.closePath(); g.stroke();
         if (b.flash > 0.6) {
-          g.font = '700 10px "JetBrains Mono", ui-monospace, Menlo, monospace';
+          g.font = '700 10px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
           g.fillStyle = `rgba(63,217,126,${(b.flash - 0.6) * 2.5})`;
           g.fillText('+1 block', b.x, b.y - b.r - 10 - (1 - b.flash) * 30);
@@ -802,7 +825,7 @@ export class Renderer2D {
       const sq = 20;
       for (let i = 0; i * sq < t.wallR - t.wallL; i++) {
         for (let j = 0; j < 2; j++) {
-          g.fillStyle = (i + j) % 2 === 0 ? '#e8ecf4' : C.ink;
+          g.fillStyle = (i + j) % 2 === 0 ? '#efedeb' : C.ink;
           g.fillRect(t.wallL + i * sq, t.finishY + j * sq, sq, sq);
         }
       }
@@ -826,7 +849,7 @@ export class Renderer2D {
       // Frozen: an ice shell, and the thaw counting down round it.
       if (m.frozen && E.tick < m.frozen && m.frozenBy === 'grab') {
         // In a claw's grip: the claw's hold counting down.
-        g.strokeStyle = '#e2e8f0'; g.lineWidth = 3;
+        g.strokeStyle = '#ebe9e6'; g.lineWidth = 3;
         g.beginPath(); g.arc(m.x, m.y, m.r + 6, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
       } else if (m.frozen && E.tick < m.frozen) {
         const left = (m.frozen - E.tick) / (m.frozenFor || 480);   // a worn freeze is not always 2s
@@ -855,7 +878,7 @@ export class Renderer2D {
         g.globalAlpha = a * fade;
         g.strokeStyle = '#ff3b3b'; g.lineWidth = 3;
         g.strokeRect(-44, -17, 88, 34);
-        g.font = '900 24px system-ui, -apple-system, sans-serif';
+        g.font = '700 24px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center'; g.textBaseline = 'middle';
         g.fillStyle = '#ff3b3b';
         g.fillText('REKT', 0, 1);
@@ -933,15 +956,15 @@ export class Renderer2D {
         // A claw on a cable: open and lit while it can grab.
         const cx = (z.x0 + z.x1) / 2, top = z.y0 - 46;
         const col = z.diamond ? '#7ee8ff' : '#e8d9b0';
-        g.strokeStyle = 'rgba(200,210,230,0.5)'; g.lineWidth = 2;
+        g.strokeStyle = 'rgba(219, 213, 208, 0.5)'; g.lineWidth = 2;
         g.beginPath(); g.moveTo(cx, top - 30); g.lineTo(cx, z.y0 - 4); g.stroke();
         const spread = on ? 16 : 7;
-        g.strokeStyle = on ? col : 'rgba(160,170,190,0.5)'; g.lineWidth = 4; g.lineCap = 'round';
+        g.strokeStyle = on ? col : 'rgba(179, 173, 168, 0.5)'; g.lineWidth = 4; g.lineCap = 'round';
         for (const d of [-1, 1]) {
           g.beginPath(); g.moveTo(cx, z.y0 - 4); g.lineTo(cx + d * spread, z.y0 + 10);
           g.lineTo(cx + d * (spread - 8), z.y0 + 22); g.stroke();
         }
-        g.font = '16px system-ui, -apple-system, sans-serif';
+        g.font = '16px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
         g.fillText(z.diamond ? '💎' : '🧻', cx, top - 34);
       } else if (z.kind === 'reorg') {
@@ -949,7 +972,7 @@ export class Renderer2D {
         g.strokeStyle = on ? '#c084fc' : 'rgba(192,132,252,0.35)';
         g.lineWidth = 2;
         g.beginPath(); g.roundRect(z.x0, z.y0, w, h, 8); g.fill(); g.stroke();
-        g.font = '800 11px system-ui, -apple-system, sans-serif';
+        g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
         g.fillStyle = on ? '#f3e8ff' : 'rgba(233,213,255,0.5)';
         g.fillText('↺ REORG', (z.x0 + z.x1) / 2, z.y0 - 6);
@@ -981,7 +1004,7 @@ export class Renderer2D {
           g.strokeStyle = `rgba(96,165,250,${0.05 + 0.05 * (6 - k) / 5 + 0.25 * p})`; g.lineWidth = 2;
           g.beginPath(); g.arc(z.cx, z.cy, r, this.clock * spin * (1.2 - k * 0.15), this.clock * spin * (1.2 - k * 0.15) + 5); g.stroke();
         }
-        g.font = '22px system-ui, -apple-system, sans-serif'; g.textAlign = 'center';
+        g.font = '22px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
         g.fillText('🐋', z.cx, z.cy + 8);
       } else if (z.kind === 'brake') {
         g.setLineDash([8, 6]);
@@ -996,7 +1019,7 @@ export class Renderer2D {
         g.lineWidth = 5; g.strokeStyle = '#e5322b';
         g.beginPath(); g.arc(cx, cy, 17, 0, Math.PI * 2); g.stroke();
         g.fillStyle = '#111';
-        g.font = '800 12px system-ui, -apple-system, sans-serif';
+        g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center'; g.textBaseline = 'middle';
         g.fillText(String(Math.round(z.vmax / 10)), cx, cy + 1);
         g.textBaseline = 'alphabetic';
@@ -1010,7 +1033,7 @@ export class Renderer2D {
       for (let a = 0; a < o.arms; a++) {
         const ang = o.angle + a * (Math.PI * 2 / o.arms);
         g.lineWidth = o.fr * 2;
-        g.strokeStyle = '#9aa2b4';
+        g.strokeStyle = '#aaa5a1';
         g.beginPath(); g.moveTo(o.cx, o.cy);
         g.lineTo(o.cx + Math.cos(ang) * o.len, o.cy + Math.sin(ang) * o.len); g.stroke();
         g.lineWidth = 3;
@@ -1030,7 +1053,7 @@ export class Renderer2D {
       const grd = g.createRadialGradient(o.x - 5, o.y - 5, 2, o.x, o.y, o.r);
       if (o.kind === 'bot' || o.kind === 'runner') {
         // MEV bots: gunmetal with a red eye looking the way they move.
-        grd.addColorStop(0, '#6b7280'); grd.addColorStop(1, '#1f2937');
+        grd.addColorStop(0, '#787471'); grd.addColorStop(1, '#1f2937');
         g.fillStyle = grd;
         g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
         const dir = Math.sign(o.vx) || 1;
@@ -1074,7 +1097,7 @@ export class Renderer2D {
     // Painted signs (the Bull Trap's lying SHORTCUT).
     for (const sg of t.signs || []) {
       if (!vis(sg.y - 30, sg.y + 30)) continue;
-      g.font = '800 13px system-ui, -apple-system, sans-serif';
+      g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif';
       const w = g.measureText(sg.text).width + 20;
       g.fillStyle = sg.style === 'bull' ? '#15803d' : '#334155';
       g.beginPath(); g.roundRect(sg.x - w / 2, sg.y - 14, w, 26, 6); g.fill();
@@ -1108,13 +1131,13 @@ export class Renderer2D {
         g.fillStyle = this.racers[m.index].hex;
         g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill();
       }
-      g.font = '700 11px system-ui, -apple-system, sans-serif'; g.textAlign = 'center';
-      g.fillStyle = 'rgba(199,210,254,0.8)';
+      g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
+      g.fillStyle = 'rgba(231, 221, 211, 0.8)';
       g.fillText(loaded.length ? 'CONFIRMING…' : 'BRIDGE', c.x, c.y - 40);
     } else if (c.kind === 'vault') {
       g.fillStyle = '#1e293b'; g.strokeStyle = C.goldDeep; g.lineWidth = 3;
       g.beginPath(); g.roundRect(c.x - 30, c.y - 40, 60, 30, 6); g.fill(); g.stroke();
-      g.font = '700 11px system-ui, -apple-system, sans-serif'; g.textAlign = 'center';
+      g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
       g.fillStyle = '#ffd98a';
       g.fillText(loaded.length ? '🔒 STAKED' : 'VAULT', c.x, c.y - 20);
       for (const m of loaded) {
@@ -1125,15 +1148,15 @@ export class Renderer2D {
       // A launchpad: gantry and a countdown.
       g.fillStyle = '#334155';
       g.fillRect(c.mx - 34, c.my + 40, 68, 8);
-      g.strokeStyle = '#64748b'; g.lineWidth = 3;
+      g.strokeStyle = '#7d766f'; g.lineWidth = 3;
       g.beginPath(); g.moveTo(c.mx - 28, c.my + 40); g.lineTo(c.mx - 28, c.my - 40); g.stroke();
-      g.font = '800 12px "JetBrains Mono", ui-monospace, Menlo, monospace'; g.textAlign = 'center';
+      g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
       if (loaded.length) {
         const m = loaded[0], secs = Math.max(0, (m.held.fire - E.tick) / 240);
         g.fillStyle = '#ff7a45';
         g.fillText(`T-${secs.toFixed(1)}`, c.mx, c.my - 50);
       } else {
-        g.fillStyle = 'rgba(226,232,240,0.7)';
+        g.fillStyle = 'rgba(235, 233, 230, 0.7)';
         g.fillText('🚀 TO THE MOON', c.mx + 20, c.my - 50);
       }
     }
@@ -1149,7 +1172,7 @@ export class Renderer2D {
         Math.min(s.ay, s.by) <= Math.max(...c.pts.map(p => p[1])) + 1));
     }
     const hash = (x) => { const v = Math.sin(x * 12.9898) * 43758.5453; return v - Math.floor(v); };
-    const mono = '600 12px "JetBrains Mono", ui-monospace, Menlo, monospace';
+    const mono = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
 
     t.charts.forEach((c, ci) => {
       const ys = c.pts.map(p => p[1]);
@@ -1170,7 +1193,7 @@ export class Renderer2D {
       for (let y = yTop + 20; y < yBot - 10; y += 40) {
         g.strokeStyle = 'rgba(255,255,255,0.05)';
         g.beginPath(); g.moveTo(xL, y); g.lineTo(xR - 64, y); g.stroke();
-        g.fillStyle = 'rgba(200,210,230,0.35)';
+        g.fillStyle = 'rgba(219, 213, 208, 0.35)';
         g.fillText(price(y).toFixed(4), xR - 8, y + 4);
       }
       for (let x = xL + 60; x < xR - 64; x += 60) {
@@ -1275,13 +1298,13 @@ export class Renderer2D {
       // Ticker. The pair is invented on purpose: real tickers are other
       // people's trademarks.
       g.textAlign = 'left';
-      g.font = '700 14px "JetBrains Mono", ui-monospace, Menlo, monospace';
-      g.fillStyle = 'rgba(233,238,251,0.9)';
+      g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
+      g.fillStyle = 'rgba(244, 241, 237, 0.9)';
       g.fillText(c.pair, xL + 12, yTop + 22);
       g.fillStyle = upNow ? '#3fd97e' : '#ff5a4e';
       g.fillText(`${upNow ? '▲ +' : '▼ '}${chg.toFixed(2)}%`, xL + 112, yTop + 22);
-      g.font = '600 11px "JetBrains Mono", ui-monospace, Menlo, monospace';
-      g.fillStyle = 'rgba(200,210,230,0.5)';
+      g.font = '600 11px "Barlow Condensed", "Arial Narrow", sans-serif';
+      g.fillStyle = 'rgba(219, 213, 208, 0.5)';
       g.fillText(c.mode === 'moon' ? '1m · PUMPING' : c.mode === 'crash' ? '1m · VOLATILE' : '1m · DUMPING', xL + 12, yTop + 40);
 
       // A parody news crawl along the foot of the chart. Every name in it is
@@ -1296,15 +1319,15 @@ export class Renderer2D {
       g.fillRect(xL, yBot - 22, 78, 22);
       g.fillStyle = 'rgba(12,16,28,0.9)';
       g.fillRect(xL + 78, yBot - 22, xR - xL - 78, 22);
-      g.font = '600 12px "JetBrains Mono", ui-monospace, Menlo, monospace';
+      g.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'left';
       const tw = g.measureText(news).width, off = (this.clock * 70) % tw;
-      g.fillStyle = 'rgba(233,238,251,0.85)';
+      g.fillStyle = 'rgba(244, 241, 237, 0.85)';
       g.save(); g.beginPath(); g.rect(xL + 78, yBot - 22, xR - xL - 78, 22); g.clip();
       g.fillText(news, xL + 84 - off, yBot - 7);
       g.fillText(news, xL + 84 - off + tw, yBot - 7);
       g.restore();
-      g.fillStyle = '#fff'; g.font = '800 11px system-ui, -apple-system, sans-serif';
+      g.fillStyle = '#fff'; g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.fillText('MRBL NEWS', xL + 8, yBot - 7);
       g.restore();
     });
@@ -1336,7 +1359,7 @@ export class Renderer2D {
       g.save();
       g.setLineDash([6, 10]);
       g.lineWidth = 2;
-      g.strokeStyle = fwd ? 'rgba(190,232,255,0.28)' : 'rgba(150,158,180,0.25)';
+      g.strokeStyle = fwd ? 'rgba(190,232,255,0.28)' : 'rgba(168, 163, 157, 0.25)';
       g.beginPath(); g.moveTo(h.x0 - h.sway, h.y); g.lineTo(h.x0 + h.sway, h.y); g.stroke();
       g.restore();
     }
@@ -1352,7 +1375,7 @@ export class Renderer2D {
     g.lineWidth = 3;
     for (let i = 0; i < 8; i++) {
       const a = spin + (i * Math.PI) / 4;
-      g.strokeStyle = fwd ? 'rgba(220,245,255,0.75)' : 'rgba(150,158,180,0.6)';
+      g.strokeStyle = fwd ? 'rgba(220,245,255,0.75)' : 'rgba(168, 163, 157, 0.6)';
       g.beginPath();
       g.moveTo(h.x + Math.cos(a) * (R + 4), h.y + Math.sin(a) * (R + 4));
       g.lineTo(h.x + Math.cos(a + 0.35) * (R + 22), h.y + Math.sin(a + 0.35) * (R + 22));
@@ -1361,8 +1384,8 @@ export class Renderer2D {
 
     const core = g.createRadialGradient(h.x, h.y, 0, h.x, h.y, R);
     core.addColorStop(0, '#ffffff');
-    core.addColorStop(0.6, fwd ? '#bfe8ff' : '#5a6275');
-    core.addColorStop(1, fwd ? 'rgba(120,200,255,0.2)' : 'rgba(40,44,58,0.4)');
+    core.addColorStop(0.6, fwd ? '#bfe8ff' : '#6b6661');
+    core.addColorStop(1, fwd ? 'rgba(120,200,255,0.2)' : 'rgba(51, 47, 44, 0.4)');
     g.fillStyle = core;
     g.beginPath(); g.arc(h.x, h.y, R, 0, Math.PI * 2); g.fill();
 
@@ -1370,7 +1393,7 @@ export class Renderer2D {
       // Ring: how much of this phase is left.
       const into = ((E.tick + h.phase) % h.half) / h.half;
       g.lineWidth = 4;
-      g.strokeStyle = fwd ? '#bfe8ff' : '#9aa3b5';
+      g.strokeStyle = fwd ? '#bfe8ff' : '#aba6a1';
       g.beginPath();
       g.arc(h.x, h.y, R + 30, -Math.PI / 2, -Math.PI / 2 + (1 - into) * Math.PI * 2);
       g.stroke();
@@ -1378,9 +1401,9 @@ export class Renderer2D {
 
     // Direction and size, in words a bettor can read: seconds, not sections.
     const n = Math.abs(fwd ? h.ahead.secs : h.behind.secs);
-    g.font = '800 14px system-ui, -apple-system, sans-serif';
+    g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
     g.textAlign = 'center';
-    g.fillStyle = fwd ? '#dff4ff' : '#c0c6d4';
+    g.fillStyle = fwd ? '#dff4ff' : '#ccc9c5';
     g.fillText(`${fwd ? '▼ +' : '▲ −'}${n}s`, h.x, h.y + R + 52);
     g.lineWidth = 10;
   }
@@ -1400,7 +1423,7 @@ export class Renderer2D {
       g.fillStyle = '#3a4560';
       g.fill();
       g.lineWidth = 3;
-      g.strokeStyle = '#5b6a8a';
+      g.strokeStyle = '#787067';
       g.stroke();
       g.lineWidth = 10;
       return;
