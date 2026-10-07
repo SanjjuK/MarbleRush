@@ -124,13 +124,14 @@ export class Renderer2D {
     for (const el of document.querySelectorAll('[data-hud]')) {
       const r = box(el);
       if (!r) continue;
-      if (r.width >= WIDE) {
+      // data-hud="top" forces a top band however narrow it is (the betting clock ring hangs from the top bar).
+      if (r.width >= WIDE || el.dataset.hud === 'top') {
         // Top or bottom band by its CENTRE, not its top edge. On a phone the
         // betting tote is so tall that its top edge sits above the middle of
         // the screen, so it was classed as a TOP band and the course was
         // framed to start below the bottom of the window: the whole betting
         // phase showed an empty screen.
-        if ((r.top + r.bottom) / 2 < this.ch * 0.5) top = Math.max(top, r.bottom + 8);
+        if (el.dataset.hud === 'top' || (r.top + r.bottom) / 2 < this.ch * 0.5) top = Math.max(top, r.bottom + 8);
         else bottomPad = Math.max(bottomPad, this.ch - r.top + 8);
       } else if (r.left > this.cw * 0.5) {
         right = Math.min(right, r.left - 12);

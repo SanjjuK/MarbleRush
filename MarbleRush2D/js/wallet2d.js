@@ -33,6 +33,14 @@ async function post(path, body) {
 
 const WALLET_KEY = 'marblerush.wallet';
 
+/** The name of the wallet this browser signed in with ("Phantom"), or a plain fallback, for button copy. */
+export function walletName() {
+  let id = null;
+  try { id = localStorage.getItem(WALLET_KEY); } catch { /* private mode */ }
+  const names = { phantom: 'Phantom', solflare: 'Solflare', backpack: 'Backpack' };
+  return names[id] || 'your wallet';
+}
+
 /** The wallet this browser signed in with, connected again (silently when it is already trusted). */
 export async function activeProvider(address) {
   let id = null;

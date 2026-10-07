@@ -84,6 +84,42 @@
     <div class="cm-dots" id="cmDots"></div>
   </div>
 
+  <!-- ===================== betting: clock ring ===================== -->
+  <!-- A medallion hanging from the top bar's centre. data-hud="top": the renderer frames the course BELOW it. -->
+  <div class="ring" id="lobby" data-hud="top" role="timer" aria-label="Betting clock">
+    <svg viewBox="0 0 176 176" aria-hidden="true"><circle class="rk" cx="88" cy="88" r="80"/><circle class="rf" id="lobbyFill" cx="88" cy="88" r="80"/></svg>
+    <div class="ring-in">
+      <span class="ring-lbl" id="lobbyLabel">Betting</span>
+      <strong id="lobbyClock">0:30</strong>
+      <span class="ring-cap">left to bet</span>
+    </div>
+  </div>
+
+  <!-- ================== betting: proof, live bets, form guide ================== -->
+  <aside class="leftcol" id="betLeft" data-hud>
+    <section class="card proofcard" id="proofCard">
+      <span class="lbl">Provably fair</span>
+      <div class="proofpill" id="proofPill">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+        <span id="proofState">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="proofHash">-</code>
+      </div>
+      <p id="proofText"></p>
+      <button type="button" class="ghost" id="proofVerify" hidden>Verify seal ↗</button>
+    </section>
+
+    <section class="card feedcard">
+      <div class="card-head"><span>Live bets <span id="feedCount" class="count">-</span></span><span class="livedot"><i aria-hidden="true"></i>LIVE</span></div>
+      <ul id="feed" class="feed"></ul>
+    </section>
+
+    <!-- recent races and your record: P2, folded away -->
+    <details class="card formguide" id="formGuide">
+      <summary>Form guide</summary>
+      <div class="fg-block"><span class="lbl">Recent races</span><ul id="history" class="history"></ul></div>
+      <div class="fg-block"><span class="lbl">Your record</span><dl id="record" class="record"></dl></div>
+    </details>
+  </aside>
+
   <!-- ======================= right: market + slip ===================== -->
   <aside class="rail" id="rail" data-hud>
     <!-- race only: what my marble is doing and what it pays; tap to follow it -->
@@ -106,37 +142,24 @@
     </section>
 
     <section class="card market tote" id="totePanel">
-      <div class="card-head">
-        <span>Market</span>
-        <span class="muted"><span id="places">Top 2 paid</span> · Pool <strong id="poolTotal">0.00</strong></span>
+      <div class="mk-head">
+        <div class="mk-pool"><span class="lbl">Total pool</span><span class="amt"><b id="poolTotal">0.00</b> <small id="poolCur"></small></span></div>
+        <div class="mk-rules"><b id="places">2 places paid</b><span>after <span id="rakePct">5%</span> rake</span></div>
       </div>
+      <div class="mk-cols" aria-hidden="true"><span>Marble</span><span>Win</span><span>2nd</span><span>Pool</span><span>Bkrs</span></div>
       <ul id="tote" class="runners"></ul>
 
-      <div class="lobby" id="lobby">
-        <div class="lobbyrow"><span id="lobbyLabel">Betting closes in</span><strong id="lobbyClock">0:30</strong></div>
-        <div class="lobbybar"><i id="lobbyFill"></i></div>
+      <!-- The dock keeps one height in every state: a 40px status row, 48px chips, the 56px button, a 20px hint. -->
+      <div class="slip" id="slip">
+        <div class="slip-row">
+          <div class="slip-head" id="slipHead"><span class="lbl" id="stakeLbl">Stake</span><span class="for" id="betFor">No marble selected</span></div>
+          <div class="steps3" id="betSteps" role="progressbar" aria-valuemin="1" aria-valuemax="3" hidden></div>
+          <div class="notice" id="betNotice" role="status" hidden></div>
+        </div>
+        <div class="stakes" id="stakes" role="group" aria-label="Stake"></div>
+        <button id="placeBet" class="cta" disabled>Pick a marble</button>
+        <p class="fineprint" id="betHint"></p>
       </div>
-
-      <div class="slip">
-        <div class="stakes" id="stakes"></div>
-        <button id="placeBet" class="cta" disabled>Select a marble</button>
-        <p class="fineprint">Rake <span id="rakePct">5%</span> · parimutuel: odds move as money arrives</p>
-      </div>
-    </section>
-
-    <section class="card feedcard">
-      <div class="card-head"><span>Live bets</span><span id="feedCount" class="muted">-</span></div>
-      <ul id="feed" class="feed"></ul>
-    </section>
-
-    <section class="card">
-      <div class="card-head"><span>Recent races</span></div>
-      <ul id="history" class="history"></ul>
-    </section>
-
-    <section class="card">
-      <div class="card-head"><span>Your record</span></div>
-      <dl id="record" class="record"></dl>
     </section>
   </aside>
 
@@ -187,9 +210,10 @@
         <li><b>Back a marble.</b> Every stake goes into one pool. Odds are what
             the pool would pay right now, and they move as money arrives,
             exactly like a tote board.</li>
-        <li><b>Ready up.</b> When everyone at the table is ready the lights go
-            out. A 30 second clock runs the lobby: bet before it ends, or watch
-            this race and join the next.</li>
+        <li><b>Beat the clock.</b> Betting runs on a 30 second clock and the
+            gates open when it ends. You get one bet per round: change your
+            marble and stake until you press Bet, then it is locked once sent.
+            Miss the clock and you watch this race and join the next.</li>
         <li><b>Every course is new.</b> Built for each race from a library of
             over a hundred sections, about 3 to 4 minutes long, and arranged
             so the race stays open to the end: one of two fair openers, calm

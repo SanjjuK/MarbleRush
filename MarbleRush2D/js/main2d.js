@@ -23,7 +23,7 @@ import { buildTrack } from './track2d.js';
 import { Engine2D, SIM_DT, runRace2D, MAX_OUT } from './engine2d.js';
 import { Renderer2D } from './render2d.js';
 import { detectServer, RemoteBetting } from './net2d.js';
-import { walletProviders, signIn, signOut, WALLET_LINKS } from './wallet2d.js';
+import { walletProviders, signIn, signOut, walletName, WALLET_LINKS } from './wallet2d.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -128,6 +128,7 @@ function resetRoundUI() {
   renderer.onResize = layoutRail;          // the progress rail follows the course column
   renderer.setCam(camMode);
   ring = []; clips = []; pendingClips = []; liveCut = null; replayT = 0;
+  betFail = null; dockLast = '';
   resetTower();
   buildCourseMap();
   lastOdds = [];
@@ -383,7 +384,7 @@ function layoutRail() {
   const el = $('courseMap');
   if (!el || !renderer || !renderer.safe) return;
   const r = renderer.courseRect();
-  const top = r.y + 24, bottom = Math.min(r.y + r.h, window.innerHeight) - RAIL_BOTTOM_RESERVE;
+  const top = r.y + 24, bottom = Math.min(r.y + r.h, window.innerHeight) - (document.body.classList.contains('race-on') ? RAIL_BOTTOM_RESERVE : 40);
   el.style.left = `${Math.round(r.x + 14)}px`;
   el.style.top = `${Math.round(top)}px`;
   el.style.height = `${Math.max(120, Math.round(bottom - top))}px`;
@@ -628,19 +629,23 @@ function fmtClock(secs) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** The ring's circumference (r = 80 in index.html). */
+const RING_C = 2 * Math.PI * 80;
+/** Seconds the betting window lasts: the server's own figure on a server round (it can differ from the local 30). */
+const lobbyTotal = () => (NET && netRound && netRound.closesAt > netRound.opensAt ? (netRound.closesAt - netRound.opensAt) / 1000 : LOBBY_SECONDS);
+
 /**
- * The lobby clock, in the tote board and in the topbar.
+ * The lobby clock: the ring on the betting screen, and the same countdown in the topbar (the phone's copy).
  *
- * Called every frame, so it writes only when the displayed SECOND changes. The
- * bar is scaled with a transform rather than a width, which keeps the one
- * thing that does update smoothly off the layout path.
+ * Called every frame, so it writes text only when the displayed SECOND changes. The ring's arc is a
+ * stroke-dashoffset, the one thing here that updates smoothly every frame.
  */
 function renderLobby() {
   const box = $('lobby');
   const live = phase === PHASE.BETTING || phase === PHASE.READY;
   const left = live ? Math.max(0, lobby) : 0;
 
-  $('lobbyFill').style.transform = `scaleX(${left / LOBBY_SECONDS})`;
+  $('lobbyFill').style.strokeDashoffset = (RING_C * (1 - Math.min(1, left / lobbyTotal()))).toFixed(1);
   box.classList.toggle('soon', live && left <= 10);
   box.classList.toggle('now', live && left <= 5);
 
@@ -649,12 +654,12 @@ function renderLobby() {
   lobbyShown = secs;
 
   $('lobbyClock').textContent = fmtClock(left);
-  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open in' : 'Betting closes in';
-  // The topbar clock counts race seconds once there is a race. Until then it
-  // has nothing to say, so it carries the same countdown: on a narrow window
-  // the tote is a strip at the bottom and this is the copy you can see.
+  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open' : left <= 0 ? 'Closed' : 'Betting';
+  // The topbar clock counts race seconds once there is a race. Until then it carries the same
+  // countdown: on a phone the ring is not drawn and this is the copy you can see.
   $('raceClock').textContent = fmtClock(left);
-  if (phase === PHASE.READY) renderBetButton();
+  // At zero the market locks: rows, chips and the button all say so (A09).
+  if (left <= 0 && phase === PHASE.BETTING && renderer) renderTote();
 }
 
 function renderWallet() {
@@ -676,17 +681,22 @@ function renderWallet() {
   renderRecord();
 }
 
+/** "FRS 02": a marble's ticker and number, so a row never relies on colour alone. */
+const mtag = (i) => `${MARBLE_DATA[i].ticker} ${String(i + 1).padStart(2, '0')}`;
+
 /** Live bets: who backed what, most recent first. */
 function renderFeed() {
   const ul = $('feed');
   if (!ul) return;
-  const rows = betting.bots.slice(-7).reverse();
-  $('feedCount').textContent = `${betting.bots.length}`;
-  ul.innerHTML = rows.map(b =>
-    `<li class="${b.mine ? 'mine' : ''}">${coin(b.marble)}` +
-    `<span class="who">${esc(b.handle)}${b.auto ? ' <em>auto</em>' : ''}</span>` +
-    `<span class="amt">${fmtA(b.amount)}</span></li>`).join('')
-    || '<li><span class="who">No bets yet</span></li>';
+  const rows = betting.bots.slice(-4).reverse();
+  $('feedCount').textContent = betting.bots.length ? `${betting.bots.length}` : '';
+  ul.innerHTML = rows.map(b => {
+    const d = MARBLE_DATA[b.marble];
+    return `<li class="${b.mine ? 'mine' : ''}" style="--c:${d.hex}"><span class="stripe"></span>` +
+      `<span class="who"><b>${esc(b.handle)}${b.auto ? ' · auto' : ''}</b><span>backed ${esc(d.name)} · ${mtag(b.marble)}</span></span>` +
+      `${b.whale ? '<em class="whale">WHALE</em>' : ''}` +
+      `<span class="amt">${fmtA(b.amount)} <small>${esc(cur())}</small></span></li>`;
+  }).join('') || '<li class="empty"><b>No bets yet</b><span>Be the first</span></li>';
 }
 
 function renderRecord() {
@@ -742,15 +752,32 @@ function renderHistory() {
     '<li class="empty"><span class="who">No races yet. Back a marble and this fills up.</span></li>';
 }
 
+/** A bet is in flight from the press of Bet until the wallet and the chain have answered (R1). */
+const inflight = () => !!betting.betState && betting.betState !== 'idle';
+/** Nothing about the bet may change: it is sent or on its way, the clock ran out, or the race has begun (R1). */
+const isLocked = () => phase !== PHASE.BETTING || !!betting.placed || inflight() || lobby <= 0;
+let betFail = null;          // why the last bet was not placed (A11a); cleared by any change of pick or stake
+let dockLast = '';           // the dock is only written when its content changes
+
+function pickMarble(i) {
+  if (isLocked()) return;
+  betFail = null;
+  betting.select(i);
+  renderTote();
+}
+
 function renderTote() {
   const ul = $('tote');
-  const locked = phase !== PHASE.BETTING || betting.placed;
+  const locked = isLocked();
+  // Rebuilding the rows would drop keyboard focus, so remember which row had it.
+  const focused = ul.contains(document.activeElement) ? [...ul.children].indexOf(document.activeElement.closest('li')) : -1;
   ul.innerHTML = '';
 
   const total = betting.totalPool;
   MARBLE_DATA.forEach((d, i) => {
     const li = document.createElement('li');
-    li.className = (betting.selected === i ? 'sel ' : '') + (locked ? 'locked' : '');
+    const sel = betting.selected === i;
+    li.className = (sel ? 'sel ' : '') + (locked ? 'locked' : '');
     li.style.setProperty('--c', d.hex);
     const on = betting.pools[i];
     const o = on > 0 ? betting.oddsFor(i, 0) : null;
@@ -763,105 +790,202 @@ function renderTote() {
                : o > prev ? 'up' : 'down';
     lastOdds[i] = o;
     const share = total > 0 ? (on / total) * 100 : 0;
+    li.setAttribute('role', 'button');
+    li.setAttribute('aria-pressed', sel);
+    li.setAttribute('aria-label', `${d.name}, ${mtag(i)}, ${odds ? `wins pay ${odds}` : 'no bets yet'}${sel ? ', selected' : ''}${locked ? ', locked' : ''}`);
+    if (locked) li.setAttribute('aria-disabled', 'true'); else li.tabIndex = 0;
     li.innerHTML =
-      `<span class="share" style="width:${share.toFixed(1)}%"></span>` +
-      coin(i) +
-      `<span class="nm">${d.name}<span class="tick">$${d.ticker}</span><span class="sub">` +
-      `${on > 0 ? `${fmtAmount(on)} · ${share.toFixed(0)}% of pool · ${betting.backers[i]} backer${betting.backers[i] === 1 ? '' : 's'}`
-                : 'No bets yet'}</span></span>` +
-      `<span class="odds ${odds ? move : 'none'}">${odds || '-'}` +
-      `${move ? `<span class="arrow">${move === 'up' ? '▲' : '▼'}</span>` : ''}` +
-      `${pl ? `<span class="sub">2nd ${pl}</span>` : ''}</span>`;
-    if (!locked) li.onclick = () => { betting.select(i); renderTote(); renderBetButton(); };
+      `<span class="who"><span class="stripe"></span><b class="n">${i + 1}</b>` +
+      `<span class="id"><span class="nm">${esc(d.name)}</span><span class="tk">${d.ticker}</span></span></span>` +
+      `<span class="win ${odds ? move : 'none'}${odds && odds.length > 5 ? ' long' : ''}">${odds || '-'}` +
+      `${move ? `<span class="arrow" aria-hidden="true">${move === 'up' ? '▲' : '▼'}</span>` : ''}</span>` +
+      `<span class="pl">${pl || '-'}</span>` +
+      `<span class="sh"><span>${on > 0 ? `${share.toFixed(0)}%` : '-'}</span><span class="bar"><i style="width:${share.toFixed(1)}%"></i></span></span>` +
+      `<span class="bk">${on > 0 ? betting.backers[i] : '-'}</span>`;
+    if (!locked) {
+      li.onclick = () => pickMarble(i);
+      li.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickMarble(i); } };
+    }
     ul.appendChild(li);
   });
+  if (focused >= 0 && ul.children[focused] && ul.children[focused].tabIndex === 0) ul.children[focused].focus({ preventScroll: true });
 
   $('poolTotal').textContent = fmtAmount(betting.totalPool);
+  $('poolCur').textContent = cur();
   renderFinalPool();
   $('rakePct').textContent = `${(RAKE * 100).toFixed(0)}%`;
-  $('places').textContent = `Top ${PLACE_SHARES.length} paid`;
+  $('places').textContent = `${PLACE_SHARES.length} places paid · ${PLACE_SHARES.map(x => Math.round(x * 100)).join(' / ')}`;
   renderStakes();
   renderBetButton();
 }
 
+/** The four stake chips. Always drawn, so the dock never changes height; locked states keep the pick readable. */
 function renderStakes() {
   const box = $('stakes');
+  const list = betting.stakes || STAKES;
+  const lock = isLocked() || !!betting.guest;
+  box.style.setProperty('--n', list.length);
+  box.classList.toggle('lock', lock);
   box.innerHTML = '';
-  if (phase !== PHASE.BETTING || betting.placed) return;
-  for (const v of (betting.stakes || STAKES)) {
+  for (const v of list) {
     const b = document.createElement('button');
+    b.type = 'button';
     b.textContent = v;
+    b.setAttribute('aria-pressed', betting.stake === v);
     if (betting.stake === v) b.className = 'on';
-    b.disabled = !betting.canAfford(v);
-    b.onclick = () => { betting.setStake(v); renderTote(); };
+    b.disabled = lock || !betting.canAfford(v);
+    b.onclick = () => { if (isLocked()) return; betFail = null; betting.setStake(v); renderTote(); };
     box.appendChild(b);
   }
 }
 
-/** The "provably fair" pill says how far the round has got on Solana, and links to the transaction. */
+const shortHash = (h) => (h ? `${h.slice(0, 4)}...${h.slice(-3)}` : '-');
+
+/** The proof pill (top bar) and the proof card (left column) say how far the round has got on Solana. */
 function renderFair() {
   const el = document.querySelector('.fair'), label = $('fairLabel');
   if (!el || !label) return;
   const c = NET ? betting.chain : null;
-  let text = 'Provably fair', sig = null, sealing = false;
+  let text = 'Provably fair', sig = null, sealing = false, state = 'fixed';
   if (c && c.cluster) {
-    if (c.reveal.status === 'confirmed') { text = 'Verified on Solana'; sig = c.reveal.sig; }
-    else if (c.commit.status === 'confirmed') { text = 'Sealed on Solana'; sig = c.commit.sig; }
-    else if (c.commit.status === 'pending') { text = 'Sealing on Solana…'; sealing = true; }
+    if (c.reveal.status === 'confirmed') { text = 'Verified on Solana'; sig = c.reveal.sig; state = 'verified'; }
+    else if (c.commit.status === 'confirmed') { text = 'Sealed on Solana'; sig = c.commit.sig; state = 'sealed'; }
+    else if (c.commit.status === 'pending') { text = 'Sealing on Solana…'; sealing = true; state = 'sealing'; }
   }
   label.textContent = text;
   el.classList.toggle('sealing', sealing);
   el.classList.toggle('link', !!sig);
   el.setAttribute('aria-disabled', sig ? 'false' : 'true');
   // S9 turns this into the proof card; until then it opens the transaction directly.
-  el.onclick = sig ? () => window.open(explorer(sig, c.cluster), '_blank', 'noopener,noreferrer') : null;
+  const open = sig ? () => window.open(explorer(sig, c.cluster), '_blank', 'noopener,noreferrer') : null;
+  el.onclick = open;
   el.title = sig ? 'Open this round\'s transaction on the Solana explorer' : 'The race is fixed by this hash before betting opens; the seed is revealed when the gates open.';
+
+  // The left column's proof card. The copy only claims Solana when Solana has the commitment.
+  $('proofState').textContent = text;
+  $('proofHash').textContent = $('commitment').textContent;
+  $('proofPill').classList.toggle('sealing', sealing);
+  const n = betting.round;
+  $('proofText').textContent = {
+    verified: `Round ${n} was sealed on Solana before betting opened, and its seed is now revealed, so anyone can replay the race.`,
+    sealed: `Round ${n} was sealed on Solana before betting opened. The seed is revealed when the gates open, so anyone can check the result.`,
+    sealing: `Round ${n} is being sealed on Solana. Betting opens as soon as it is sealed.`,
+    fixed: `Round ${n} is fixed by this hash before betting opens. The seed is revealed when the gates open, so anyone can replay the race.`,
+  }[state];
+  const v = $('proofVerify');
+  v.hidden = !open;
+  v.onclick = open;
+}
+
+/* ------------------------------- the bet dock ------------------------------- */
+
+const ICON = {
+  spin: '<svg class="spin" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-width="2.5"/><path d="M12 3a9 9 0 0 1 9 9" stroke-width="2.5"/></svg>',
+  check: '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width:2.5"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  wallet: '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M16 12.5h2M3 9h13a2 2 0 0 0 2-2V5"/></svg>',
+  drop: '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3.5 4.5 6 7.8 6 11a6 6 0 0 1-12 0c0-3.2 2.5-6.5 6-11z"/></svg>',
+  lock: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+};
+
+/** The three-step bar of A03 to A05: Prepare, Approve, Confirm. */
+function stepsHtml(n) {
+  return ['Prepare', 'Approve', 'Confirm'].map((t, k) => {
+    const done = k < n - 1, cur = k === n - 1;
+    return `<div class="st${done ? ' done' : ''}${cur ? ' cur' : ''}"><span class="bar">${cur ? `<i${n === 3 ? ' class="ind"' : ''}></i>` : ''}</span><span class="t">${done ? '✓ ' : ''}${k + 1} ${t}</span></div>`;
+  }).join('');
+}
+
+const pressBet = () => { betFail = null; if (betting.placeBet()) { renderTote(); renderWallet(); } };
+const topUp = () => { betting.topUp(); renderWallet(); renderTote(); };
+
+/**
+ * What the dock shows now: the CTA ladder A01 to A11a (design/HANDOFF.md section 4). One place decides it, so
+ * the label, the status row, the hint and the lock can never disagree. First match wins.
+ */
+function dockView() {
+  const min = betting.minBet ?? MIN_BET, sel = betting.selected;
+  const name = sel >= 0 ? MARBLE_DATA[sel].name : '';
+  const minTxt = Number.isInteger(min) ? String(min) : fmtAmount(min);
+  const v = { head: 'stake', stakeLbl: `Stake · min ${minTxt}`,
+    forTxt: sel >= 0 ? `Backing <b>${esc(name)}</b> · ${mtag(sel)}` : 'No marble selected', disabled: true };
+
+  // A09: the clock ran out, or the race has begun. A bet already placed stands. (A bet still in flight is shown below.)
+  if (phase !== PHASE.BETTING || (lobby <= 0 && !inflight())) {
+    return { ...v, k: 'idle', forTxt: 'Bets locked', label: `${ICON.lock}Betting closed`,
+      hint: betting.placed ? `Your bet on ${esc(name)} stands · ${fmtA(betting.stake)} ${esc(cur())}` : 'You are watching this round' };
+  }
+  if (betting.guest) {                                                                                  // A08
+    return { ...v, k: 'cta', disabled: false, onclick: openWallet, label: `${ICON.wallet}Connect wallet to play`, hint: 'Players never need SOL' };
+  }
+  if (betting.sealing) {                                                                                // A10
+    const h = ($('commitment').title || '').slice(0, 4);
+    return { ...v, k: 'idle', forTxt: `Round ${betting.round}`, label: `${ICON.spin}Sealing round on Solana…`,
+      hint: `<span class="sealpill">${ICON.spin.replace('width="20" height="20"', 'width="14" height="14"')}<b>Sealing</b>${h ? `<code>${esc(h)}...</code>` : ''}</span><span>Betting opens when sealed</span>` };
+  }
+  if (inflight()) {                                                                                     // A03, A04, A05
+    const n = { preparing: 1, signing: 2, confirming: 3 }[betting.betState] || 1, wn = walletName();
+    return { ...v, k: 'busy', head: 'steps', steps: n,
+      label: n === 1 ? `${ICON.spin}Preparing your bet`
+        : n === 2 ? `${wn === 'your wallet' ? ICON.wallet : `<span class="glyph" aria-hidden="true">${esc(wn[0])}</span>`}Approve in ${esc(wn)}`
+        : `${ICON.spin}Confirming on Solana`,
+      hint: n === 1 ? 'Building the token transfer'
+        : n === 2 ? `<span>Check the ${esc(wn)} window</span><span class="dot">·</span><button type="button" class="linkbtn" id="betCancel">Cancel</button>`
+        : 'Usually under 2 seconds' };
+  }
+  if (betting.placed) {                                                                                 // A06: final, nothing to press
+    return { ...v, k: 'done', label: `${ICON.check}Bet placed`,
+      hint: `Locked once sent · ${fmtA(betting.stake)} ${esc(cur())} on ${esc(name)}` };
+  }
+  if (betFail) {                                                                                        // A11a
+    return { ...v, k: 'retry', disabled: false, onclick: pressBet, head: 'notice', notice: { tag: 'NOT PLACED', msg: betFail },
+      label: 'Bet not placed · Try again', hint: 'Your stake and pick are kept' };
+  }
+  if (betting.balance < min - 1e-9) {                                                                   // A07
+    const low = `<span class="tagbox">LOW</span><span>Balance ${fmtAmount(betting.balance)} ${esc(cur())}, minimum ${minTxt}</span>`;
+    return betting.token
+      ? { ...v, k: 'cta', disabled: false, onclick: openWallet, label: `${ICON.drop}Get test token`, hint: low }
+      : { ...v, k: 'cta', disabled: false, onclick: topUp, label: `${ICON.drop}Top up demo wallet`, hint: low };
+  }
+  if (sel < 0) return { ...v, k: 'idle', label: 'Pick a marble', hint: 'Tap a marble row to back it' };    // A01
+  if (!betting.canAfford(betting.stake)) return { ...v, k: 'idle', label: 'Stake too high', hint: 'Choose a smaller stake' };
+  const q = betting.quote(sel, betting.stake);                                                           // A02
+  return { ...v, k: 'ready', disabled: false, onclick: pressBet, label: `Bet ${fmtA(betting.stake)} → ${fmtAmount(q.payout)}`,
+    hint: 'One bet per round · locked once sent' };
 }
 
 function renderBetButton() {
+  const v = dockView();
+  const key = [v.k, v.label, v.disabled, v.hint, v.head, v.forTxt, v.stakeLbl, v.steps, v.notice && v.notice.msg].join('\u0001');
+  if (key === dockLast) return;
+  dockLast = key;
   const btn = $('placeBet');
-  if (phase === PHASE.READY) {
-    btn.disabled = true;
-    btn.textContent = NET
-      ? `Waiting… ${betting.ready}/${betting.players} ready · ${fmtClock(lobby)}`
-      : `Waiting… ${readyCount}/${betting.bots.length + 1} ready · ${fmtClock(lobby)}`;
-    return;
-  }
-  if (phase !== PHASE.BETTING) { btn.disabled = true; btn.textContent = 'Betting closed'; return; }
-  if (betting.guest) { btn.disabled = false; btn.textContent = 'Connect wallet to play'; btn.onclick = openWallet; return; }
-  if (betting.sealing) { btn.disabled = true; btn.textContent = 'Sealing round on Solana…'; return; }
-  const BET_STATES = { preparing: 'Preparing your bet…', signing: 'Approve in your wallet…', confirming: 'Confirming on Solana…' };
-  if (betting.betState && betting.betState !== 'idle') { btn.disabled = true; btn.textContent = BET_STATES[betting.betState]; return; }
-  if (betting.placed) {
-    btn.disabled = false;
-    btn.textContent = 'READY';
-    btn.onclick = enterReady;
-    return;
-  }
-  // The empty-wallet check comes FIRST. Behind "select a marble" it never
-  // showed, because picking a marble you cannot back is not the next step.
-  if (betting.token && betting.balance < betting.minBet) {
-    btn.disabled = false;
-    btn.textContent = `Get test ${betting.token} to play`;
-    btn.onclick = openWallet;
-    return;
-  }
-  if (!betting.token && betting.balance < (betting.minBet ?? MIN_BET)) {
-    btn.disabled = false;
-    btn.textContent = 'Top up demo wallet';
-    btn.onclick = () => { betting.topUp(); renderWallet(); renderTote(); };
-    return;
-  }
-  if (betting.selected < 0) { btn.disabled = true; btn.textContent = 'Select a marble'; return; }
-  if (!betting.canAfford(betting.stake)) {
-    btn.disabled = true;
-    btn.textContent = 'Stake too high';
-    return;
-  }
-  const q = betting.quote(betting.selected, betting.stake);
-  btn.disabled = false;
-  btn.textContent = `Bet ${betting.stake} → ${fmtAmount(q.payout)}`;
-  btn.onclick = () => { if (betting.placeBet()) { renderTote(); renderWallet(); } };
+  btn.dataset.k = v.k;
+  btn.disabled = !!v.disabled;
+  btn.setAttribute('aria-busy', v.k === 'busy');
+  btn.innerHTML = v.label;
+  btn.onclick = v.onclick || null;
+
+  $('slipHead').hidden = v.head !== 'stake';
+  $('stakeLbl').textContent = v.stakeLbl;
+  $('betFor').innerHTML = v.forTxt;
+  const st = $('betSteps');
+  st.hidden = v.head !== 'steps';
+  if (!st.hidden) { st.innerHTML = stepsHtml(v.steps); st.setAttribute('aria-valuenow', v.steps); st.setAttribute('aria-label', `Bet progress: step ${v.steps} of 3`); }
+  const nt = $('betNotice');
+  nt.hidden = v.head !== 'notice';
+  if (!nt.hidden) nt.innerHTML = `<span class="tag">${v.notice.tag}</span><span class="msg" title="${esc(v.notice.msg)}">${esc(v.notice.msg)}</span>`;
+  $('betHint').innerHTML = v.hint;
+  const cancel = $('betCancel');
+  if (cancel) cancel.onclick = () => { if (betting.cancelBet) betting.cancelBet(); };
+}
+
+/** A bet that did not go through (R1: everything unlocks, the pick and the stake are kept). */
+function onBetFailed(msg) {
+  const wn = walletName();
+  betFail = /cancelled in the wallet|declin|reject|denied/i.test(msg) ? `Declined in ${wn} · no ${cur()} spent`
+    : /^bet cancelled$/i.test(msg) ? `Cancelled · no ${cur()} spent`
+    : String(msg).replace(/^./, (c) => c.toUpperCase());
+  renderTote();
 }
 
 /* ------------------------- the timing tower -------------------------- */
@@ -1461,6 +1585,7 @@ $('camToggle').onclick = () => {
       chain: () => { renderFair(); if (phase === PHASE.BETTING) renderBetButton(); },
       changed: () => { renderTote(); renderWallet(); renderStakes(); renderBetButton(); },
       error: (msg) => announce(`<span class="msg">${esc(msg)}</span>`, 'out'),
+      betFailed: onBetFailed,
     });
   } else newRound();
   requestAnimationFrame(frame);
@@ -1479,6 +1604,9 @@ window.__mr2d = {
   get netRound() { return netRound; },
   get bettingLive() { return betting; },
   pause(on = true) { paused = on; },
+  /** Redraw the market and dock after poking `bettingLive` by hand (to look at every dock state), and fake a failed bet. */
+  render() { renderTote(); },
+  fail(msg = 'Bet cancelled in the wallet') { onBetFailed(msg); },
   skip() { if (phase === PHASE.BETTING) { betting.placeBet(); enterCountdown(); } },
   ready() { if (phase === PHASE.BETTING) { betting.placeBet(); enterReady(); } },
   /** Wind the lobby clock down to `secs`, for testing the expiry path. */
