@@ -76,6 +76,7 @@ let phase = PHASE.BETTING;
 let track, engine, renderer, result, raceRng;
 let countdown = 0, botTimer = 0, accumulator = 0, settleInfo = null, gridState = null;
 let readyIn = [];        // seconds until each other player readies up
+let finishedRound = 0;   // the round whose result is on screen
 let readyCount = 0;
 let lobby = LOBBY_SECONDS;   // seconds left on the lobby clock
 let lobbyShown = -1;         // last whole second written to the DOM
@@ -133,7 +134,8 @@ function resetRoundUI() {
   buildCourseMap();
   lastOdds = [];
   $('roundTag').textContent = `Round ${betting.round}`;
-  document.body.classList.remove('racing');
+  document.body.classList.remove('racing', 'countdown', 'results', 'paid');
+  $('ridingChip').hidden = true;
   // The panels must be laid out before the renderer measures around them.
   requestAnimationFrame(() => renderer.resize());
   renderer.resize();
@@ -213,7 +215,7 @@ function startNetRace(r) {
   engine.reset(makeRng(r.raceSeed));
   engine.settle();
   gridState = engine.snapshot();
-  if (phase !== PHASE.COUNTDOWN) { $('countdownOverlay').hidden = true; setRaceLayout(true); }
+  if (phase !== PHASE.COUNTDOWN) { $('countdownOverlay').hidden = true; $('ridingChip').hidden = true; setRaceLayout(true); }
   enterRacing();
   // Joined late, or a slow tab: fast-forward to the server's moment, quietly.
   const behind = Math.floor((betting.now() - r.raceAt) / 1000 / SIM_DT);
@@ -320,11 +322,13 @@ function enterCountdown() {
   renderTote();
   setRaceLayout(true);
   $('countdownOverlay').hidden = false;
-  $('countdownNote').textContent = autoNote || 'Marbles ready';
+  document.body.classList.add('countdown');
+  $('countdownNote').textContent = autoNote || 'Marbles in the gate';
+  renderRidingChip();
   // Hand the topbar clock back to the race, or it sits on the last lobby
   // reading right through the countdown.
   $('raceClock').textContent = '0.00s';
-  $('phaseLabel').textContent = 'All ready';
+  $('phaseLabel').textContent = 'Starting';
   renderLobby();
 }
 
@@ -338,8 +342,10 @@ function enterRacing() {
   if (gridState) engine.restore(gridState);
   engine.openGate();
   $('countdownOverlay').hidden = true;
+  $('ridingChip').hidden = true;
   $('banner').hidden = true;
   $('phaseLabel').textContent = 'Racing';
+  document.body.classList.remove('countdown');
   document.body.classList.add('racing');
 }
 
@@ -364,6 +370,7 @@ function enterFinished() {
   }
 
   settleInfo = NET ? betting.settle() : betting.settle(result.finishOrder);
+  finishedRound = settleInfo.round ?? betting.round;
   showResult();
   renderWallet();
   renderHistory();
@@ -875,6 +882,12 @@ function renderFair() {
   const v = $('proofVerify');
   v.hidden = !open;
   v.onclick = open;
+  // The same facts on the result screen's proof bar (S9 turns the button into the proof card).
+  $('resProofText').textContent = text;
+  $('resProofHash').textContent = $('commitment').textContent;
+  $('resProof').classList.toggle('sealing', sealing);
+  $('resProofBtn').hidden = !open;
+  $('resProofBtn').onclick = open;
 }
 
 /* ------------------------------- the bet dock ------------------------------- */
@@ -1177,21 +1190,47 @@ function renderFinalPool() {
 
 /* ------------------------------ start lights ---------------------------- */
 
+/** Frame 9: three lamps, one lit per second (1, 2, 3 as the number goes 3, 2, 1); all out at GO, instantly. */
+let lastTick = 0;
 function renderGantry() {
-  const lamps = $('gantry').children;
-  const on = Math.max(0, Math.min(5, Math.ceil((3 - countdown) / 0.55)));
-  for (let i = 0; i < 5; i++) lamps[i].classList.toggle('on', i < on && countdown > 0.15);
-  $('gantry').classList.toggle('go', countdown <= 0.15);
+  const lamps = $('gantry').children, n = Math.max(1, Math.ceil(countdown)), live = countdown > 0.15;
+  const lit = live ? Math.min(3, 4 - n) : 0;
+  for (let i = 0; i < 3; i++) lamps[i].classList.toggle('on', i < lit);
+  $('gantry').classList.toggle('go', !live);
+  if (live && n !== lastTick) {
+    lastTick = n;
+    // A short tick per second on phones, skipped when the player asked for less motion.
+    if (navigator.vibrate && !reducedMotion() && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(10);
+  }
+  if (!live) lastTick = 0;
+}
+
+const reducedMotion = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+/** The one chip under the countdown: "Riding Frost · 50 RUSH". Nothing for a spectator. */
+function renderRidingChip() {
+  const el = $('ridingChip'), i = !betting.guest && betting.placed ? betting.selected : -1;
+  if (i < 0) { el.hidden = true; return; }
+  el.innerHTML = `<span class="tok" style="--c:${MARBLE_DATA[i].hex}">${String(i + 1).padStart(2, '0')}</span><b>Riding ${esc(MARBLE_DATA[i].name)}</b>` +
+    `<span class="dot">·</span><span class="amt">${fmtA(betting.stake)} ${esc(cur())}</span>`;
+  el.hidden = false;
 }
 
 /* -------------------------------- confetti ------------------------------ */
 
+/** Mix two #rrggbb colours: k of b, the rest a. */
+const mix = (a, b, k) => '#' + [1, 3, 5].map(o => Math.round(parseInt(a.slice(o, o + 2), 16) * (1 - k) + parseInt(b.slice(o, o + 2), 16) * k).toString(16).padStart(2, '0')).join('');
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
 let confetti = [];
-function launchConfetti() {
+/** Gold only: --celebrate belongs to winning and nothing else. `n` is the density (a win is full, a place a few). */
+function launchConfetti(n = 160) {
+  if (reducedMotion()) return;
   const c = $('confetti'), dpr = Math.min(window.devicePixelRatio || 1, 2);
   c.width = innerWidth * dpr; c.height = innerHeight * dpr;
-  const cols = ['#f0cd7c', '#43c98b', '#ffffff', '#d6b25a', '#9fe3ff', ...MARBLE_DATA.map(d => d.hex)];
-  for (let i = 0; i < 180; i++) {
+  const gold = cssVar('--celebrate') || '#E6C77A', light = cssVar('--light') || '#F4EFE6';
+  const cols = [gold, gold, light, mix(gold, '#ffffff', .5), mix(gold, '#000000', .25)];
+  for (let i = 0; i < n; i++) {
     confetti.push({ x: innerWidth / 2 + (Math.random() - 0.5) * 120, y: innerHeight * 0.42,
       vx: (Math.random() - 0.5) * 900, vy: -300 - Math.random() * 700, r: Math.random() * 6.28,
       vr: (Math.random() - 0.5) * 12, w: 5 + Math.random() * 6, h: 8 + Math.random() * 8,
@@ -1214,79 +1253,179 @@ function drawConfetti(dt) {
   if (!confetti.length) g.clearRect(0, 0, innerWidth, innerHeight);
 }
 
+/* -------------------------------- results ------------------------------- */
+
+/** 3:31.42, the way the tower and the design write a race time. */
+const fmtTime = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
+const signed = (v) => `${v < 0 ? '−' : '+'}${fmtAmount(Math.abs(v))}`;
+const pad2 = (i) => String(i + 1).padStart(2, '0');
+const tokHtml = (i, cls = '') => `<span class="tok ${cls}" style="--c:${MARBLE_DATA[i].hex}">${pad2(i)}</span>`;
+let resultKind = '';
+
+/**
+ * The result screen (frames 11a to 11d). The course stays up; the personal panel is one of five:
+ * win (1st and in profit), place (paid, any other way: quiet), loss (backed, not paid), void (stake returned),
+ * watch (no bet). The figures come from settleInfo and the committed run, never from the live engine.
+ */
 function showResult() {
-  const win = MARBLE_DATA[result.finishOrder[0]];
-  const wi = result.finishOrder[0];
-  $('winSwatch').className = 'coin';
-  $('winSwatch').style.cssText = `--c:${win.hex};--d:${MARBLE_DARK[wi]};width:22px;height:22px`;
-  $('winName').textContent = win.name;
+  const si = settleInfo, order = result.finishOrder, ko = (i) => result.eliminated.includes(i);
+  const winIdx = order[0], win = MARBLE_DATA[winIdx], rnd = finishedRound;
+  const mine = si.backed >= 0 ? si.backed : -1;
+  const voided = !!si.void, hasBet = mine >= 0 && !voided;
+  resultKind = voided && mine >= 0 ? 'void'
+    : si.place >= 0 && !voided ? (si.place === 0 && si.profit > 0 ? 'win' : 'place')
+    : hasBet ? 'loss' : 'watch';
+  const body = document.body;
+  body.classList.add('results');
+  renderer.setSpotlight(-1, '');
 
-  // Times come from the COMMITTED run, like the order does. Reading them off
-  // the live engine mixed two runs together and printed a finishing order
-  // whose times were not even in ascending sequence.
-  $('winTime').textContent = `${result.times[result.finishOrder[0]].toFixed(2)}s`;
+  // Podium card: the winner large, then P2 and P3. A voided round has no result to show.
+  const top3 = order.filter(i => !ko(i)).slice(0, 3);
+  $('pcTag').textContent = voided ? 'No result' : 'Winner';
+  $('podiumCard').classList.toggle('void', voided);
+  $('winSwatch').hidden = voided;
+  $('winSwatch').className = `tok lg${winIdx === mine && hasBet ? ' mine' : ''}`;
+  $('winSwatch').style.setProperty('--c', win.hex);
+  $('winSwatch').textContent = pad2(winIdx);
+  $('winName').textContent = voided ? 'No result' : win.name;
+  $('winSub').textContent = voided ? `Round ${rnd} was voided` : `${pad2(winIdx)} ${win.ticker}${winIdx === mine && hasBet ? ' · MINE' : ''}`;
+  $('winTime').textContent = voided ? '' : fmtTime(result.times[winIdx]);
+  $('podium').innerHTML = voided ? '' : [1, 2].filter(k => top3[k] !== undefined).map(k =>
+    `<div class="pd"><span class="p">P${k + 1}</span><span class="tok sm" style="--c:${MARBLE_DATA[top3[k]].hex}">${top3[k] + 1}</span><b>${MARBLE_DATA[top3[k]].ticker}</b><span class="t">${fmtTime(result.times[top3[k]])}</span></div>`).join('');
 
-  // The podium: 2nd, 1st, 3rd, like the real thing.
-  const top3 = result.finishOrder.filter(i => !result.eliminated.includes(i)).slice(0, 3);
-  $('podium').innerHTML = [1, 0, 2].filter(k => top3[k] !== undefined).map(k =>
-    `<div class="step p${k + 1}">${coin(top3[k])}<span class="nm">${MARBLE_DATA[top3[k]].name}</span><div class="blk">${k + 1}</div></div>`).join('');
-
-  const p = $('payout');
-  const ORD = ['1st', '2nd', '3rd', '4th', '5th'];
-  if (settleInfo.void) {
-    p.className = 'payout'; p.textContent = 'Round void, stake returned';
-  } else if (settleInfo.place >= 0) {
-    // Paid, whether it won or merely placed. Sign the figure off the PROFIT,
-    // not the position: a placed marble carrying most of the pool can still
-    // pay back less than its stake, and saying otherwise would be a lie.
-    const up = settleInfo.profit >= 0;
-    p.className = `payout ${up ? 'win' : 'lose'}`;
-    p.textContent = (up ? 'WAGMI · ' : '') +
-      `${ORD[settleInfo.place]} · ${up ? '+' : '−'}${fmtAmount(Math.abs(settleInfo.profit))} ` +
-      `${cur()} at ${fmtOdds(settleInfo.odds)}`;
-  } else if (settleInfo.backed >= 0) {
-    p.className = 'payout lose';
-    const ko = result.eliminated.includes(settleInfo.backed);
-    p.textContent = `−${fmtAmount(settleInfo.stake)} ${cur()} on ${MARBLE_DATA[settleInfo.backed].name}` +
-                    (ko ? ', knocked out' : '');
-  } else { p.className = 'payout lose'; p.textContent = 'No bet placed'; }
-
+  // Final order: committed times, knockouts as OUT.
+  $('foTitle').textContent = `Final order · R${rnd}`;
+  $('foState').textContent = voided ? 'NO RESULT' : 'FINISHED';
   const ol = $('finalOrder');
   ol.innerHTML = '';
-  result.finishOrder.forEach((idx, i) => {
-    const d = MARBLE_DATA[idx];
-    const li = document.createElement('li');
-    const ko = result.eliminated.includes(idx);
-    li.className = ko ? 'out' : i < PLACE_SHARES.length ? 'paid' : '';
-    li.innerHTML =
-      `<span class="pos">${i + 1}</span>` +
-      `${coin(MARBLE_DATA.indexOf(d))}` +
-      `<span class="nm">${d.name}</span>` +
-      `<span class="ft">${ko ? 'OUT' : result.times[idx].toFixed(2) + 's'}</span>`;
+  order.forEach((idx, i) => {
+    const d = MARBLE_DATA[idx], out = ko(idx), li = document.createElement('li');
+    li.className = (idx === mine && hasBet ? 'mine ' : '') + (out ? 'out' : '');
+    li.style.setProperty('--c', d.hex);
+    li.innerHTML = `<span class="pos">${out ? '—' : i + 1}</span><span class="stripe"></span>` +
+      `<span class="who"><b class="num">${pad2(idx)}</b><span class="nm">${esc(d.name)}</span><i class="tk">${d.ticker}</i>${idx === mine && hasBet ? '<em class="mt">MINE</em>' : ''}</span>` +
+      (out ? '<span class="oo">OUT</span>' : `<span class="ft">${fmtTime(result.times[idx])}</span>`);
     ol.appendChild(li);
   });
 
-  // A burst of coins when the player's backing paid out at a profit, the
-  // payout counting up, and confetti across the whole screen.
-  const card = document.querySelector('#resultOverlay .card');
-  const won = !settleInfo.void && settleInfo.place >= 0 && settleInfo.profit > 0;
-  card.classList.toggle('won', won);
-  if (won) {
-    const full = p.textContent, target = settleInfo.profit, t0 = performance.now();
-    const step = (now) => {
-      const k = Math.min(1, (now - t0) / 1300), e = 1 - Math.pow(1 - k, 3);
-      p.textContent = full.replace(/\+[\d,.]+/, '+' + fmtAmount(target * e));
-      if (k < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-    launchConfetti();
-  }
-  $('burst').innerHTML = won ? Array.from({ length: 16 }, (_, k) => {
-    const a = (k / 16) * Math.PI * 2, r = 110 + (k % 3) * 30;
-    return `<i style="--dx:${(Math.cos(a) * r).toFixed(0)}px;--dy:${(Math.sin(a) * r - 40).toFixed(0)}px;animation-delay:${(k % 4) * 40}ms"></i>`;
-  }).join('') : '';
+  renderMyResult(si, { winIdx, rnd, mine, hasBet, ko });
+  renderResultLinks();
 
+  // Win: the full celebration. Place: a few particles. Everything else: nothing moves.
   $('resultOverlay').hidden = false;
+  if (resultKind === 'win') { launchConfetti(160); renderer.setSpotlight(winIdx, cssVar('--celebrate-glow')); }
+  else if (resultKind === 'place') launchConfetti(24);
+  setRaceLayout(true);
+}
+
+/** The right-hand stack: my result, and the next-round ring (the hero when there is nothing to celebrate). */
+function renderMyResult(si, { winIdx, rnd, mine, hasBet, ko }) {
+  const el = $('myResult'), kind = resultKind, ORDn = ['1st', '2nd', '3rd', '4th', '5th'];
+  const name = mine >= 0 ? MARBLE_DATA[mine].name : '';
+  el.className = `myres ${kind === 'loss' || kind === 'void' ? 'quiet ' : ''}${kind}`;
+  $('resConnect').hidden = !(kind === 'watch' && betting.guest);
+  $('resCur').textContent = cur();
+  $('burst').innerHTML = '';
+  $('resWho').textContent = kind === 'watch' ? `Round ${rnd}` : `My result · ${name} ${MARBLE_DATA[mine].ticker}`;
+  const tok = $('resTok');
+  tok.hidden = kind === 'watch' || kind === 'void';
+  if (mine >= 0) { tok.className = 'tok lg'; tok.style.setProperty('--c', MARBLE_DATA[mine].hex); tok.textContent = pad2(mine); }
+  const stat = (l, v, dim) => `<div><span class="lbl">${l}</span><b${dim ? ' class="dim"' : ''}>${v}</b></div>`;
+  const line = $('resLine');
+  line.hidden = true;
+  let amount = 0, stats = '', count = false;
+
+  if (kind === 'win' || kind === 'place') {
+    amount = si.payout ?? si.profit + si.stake;
+    $('resTag').textContent = kind === 'win' ? 'WIN' : 'PLACE';
+    $('resHead').textContent = `${ORDn[si.place]} · ${name}`;
+    $('resPayLbl').textContent = kind === 'win' ? 'Payout' : si.place === 1 ? 'Runner-up pays' : `${ORDn[si.place]} pays`;
+    // The sign comes from the PROFIT, never the position: a paid marble can still pay back less than its stake.
+    stats = stat('Profit', signed(si.profit)) + stat('Return', fmtOdds(si.odds)) + stat('Bet', fmtA(si.stake), true);
+    count = kind === 'win' && !reducedMotion();
+  } else if (kind === 'loss') {
+    const wo = betting.oddsFor(winIdx, 0), at = result.finishOrder.indexOf(mine);
+    $('resTag').textContent = 'NO PAYOUT';
+    $('resHead').textContent = 'Not this time';
+    line.hidden = false;
+    line.textContent = `${ko(mine) ? `${name} was knocked out.` : `${name} finished ${ORDn[at]}.`} ${MARBLE_DATA[winIdx].name} won${wo ? ` at ${fmtOdds(wo)}` : ''}.`;
+    $('resPayLbl').textContent = 'Payout';
+    stats = stat('Profit', signed(-si.stake), true) + stat('Bet', fmtA(si.stake), true) + stat('Finished', ko(mine) ? 'OUT' : ORDn[at], true);
+  } else if (kind === 'void') {
+    amount = si.payout ?? si.stake;
+    $('resTag').textContent = 'REFUND';
+    $('resHead').textContent = `Round ${rnd} was voided`;
+    line.hidden = false; line.textContent = 'Your stake was returned.';
+    $('resPayLbl').textContent = 'Returned';
+    stats = stat('Profit', fmtAmount(0)) + stat('Bet', fmtA(si.stake), true) + stat('Round', rnd, true);
+  } else {
+    $('resTag').textContent = 'WATCHING';
+    $('resHead').textContent = 'You watched this round';
+    line.hidden = false;
+    line.textContent = betting.guest ? `Connect a wallet to bet on round ${rnd + 1}.` : `Betting on round ${rnd + 1} opens soon.`;
+  }
+  $('resStats').innerHTML = stats;
+  const out = $('payout');
+  const show = (v) => { out.textContent = `${kind === 'void' ? '+' : ''}${fmtAmount(v)}`; };
+  if (count) {
+    const t0 = performance.now();
+    show(0);
+    const step = (now) => { const k = Math.min(1, (now - t0) / 1200), e = 1 - Math.pow(1 - k, 3); show(amount * e); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  } else show(amount);
+
+  // Next round: a ring on a server round; a plain Start button on a local one (no shared clock there).
+  $('resStack').classList.toggle('hero', kind === 'loss' || kind === 'void' || kind === 'watch');
+  $('nextLbl').textContent = `Next round · ${rnd + 1}`;
+  $('nextRace').hidden = NET;
+  $('nextRace').classList.toggle('go', !NET);
+  $('nextRace').textContent = `Start round ${rnd + 1}`;
+  nextShown = '';
+  renderNext();
+}
+
+/** The next-round ring: counts the server's own clock down to betting. Written only when the second changes. */
+const NEXT_C = 2 * Math.PI * 42;
+let nextShown = '';
+function renderNext() {
+  if (phase !== PHASE.FINISHED) return;
+  const fill = $('nextFill');
+  if (NET && netRound && netRound.nextAt) {
+    const left = Math.max(0, (netRound.nextAt - betting.now()) / 1000);
+    const total = Math.max(1, (netRound.nextAt - (netRound.resultAt || netRound.nextAt - 15000)) / 1000);
+    fill.style.strokeDashoffset = (NEXT_C * (1 - Math.min(1, left / total))).toFixed(1);
+    const secs = Math.ceil(left), key = String(secs);
+    if (key !== nextShown) {
+      nextShown = key;
+      $('nextSecs').textContent = secs;
+      $('nextNote').textContent = secs > 0 ? `Betting opens in ${secs}s` : 'Betting opens now';
+    }
+  } else if (nextShown !== 'local') {
+    nextShown = 'local';
+    fill.style.strokeDashoffset = '0';
+    $('nextSecs').textContent = '-';
+    $('nextNote').textContent = `Round ${finishedRound + 1} is ready`;
+  }
+}
+
+/** Links that need Solana's word: the round-level paid-out pill, my own "Paid out" link, the proof bar. */
+function renderResultLinks() {
+  const pill = $('paidPill'), mineBtn = $('resPaid');
+  const p = NET && netRound && betting.payouts ? betting.payouts.get(netRound.id) : null;
+  const ok = !!(p && p.status === 'confirmed' && p.sigs.length) && !$('resultOverlay').hidden;
+  const refund = !!(p && p.kind === 'refund');
+  const sig = ok ? p.sigs[0] : '', short = sig ? `${sig.slice(0, 3)}...${sig.slice(-3)} ↗` : '';
+  const open = () => window.open(explorer(sig, betting.cluster), '_blank', 'noopener,noreferrer');
+  pill.hidden = !ok;
+  document.body.classList.toggle('paid', ok);
+  if (ok) { $('paidTxt').textContent = refund ? 'Refunded on Solana' : 'Round paid out on Solana'; $('paidSig').textContent = short; pill.onclick = open; }
+  // R3: the personal line appears only when this player really was paid (or refunded), and the chain says so.
+  const mineOk = ok && ((resultKind === 'win' || resultKind === 'place') && (settleInfo?.payout ?? 0) > 0 && !refund || resultKind === 'void' && refund);
+  mineBtn.hidden = !mineOk;
+  if (mineOk) {
+    mineBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>${resultKind === 'void' ? 'Refunded on Solana' : 'Paid out on Solana'} <code>${esc(short)}</code>`;
+    mineBtn.onclick = open;
+  }
 }
 
 /* ------------------------------ the loop ------------------------------- */
@@ -1379,7 +1518,8 @@ function frame(now) {
       // A server round is over when the SERVER says so and has paid out; the
       // field rolls on into the basin until then.
       if (!NET) enterFinished();
-      else if (netRound && netRound.phase === 'results' && betting.settled && betting.settled.id === netRound.id) {
+      // A signed-out spectator is never sent a settlement, so for them the server's 'results' phase is enough.
+      else if (netRound && netRound.phase === 'results' && (betting.guest || (betting.settled && betting.settled.id === netRound.id))) {
         result = netRound.result;
         enterFinished();
       }
@@ -1405,11 +1545,7 @@ function frame(now) {
   drawSideCam();
   drawReplay(dt);
   drawConfetti(dt);
-  if (NET && netRound && phase === PHASE.FINISHED) {
-    const secs = Math.max(0, Math.ceil((netRound.nextAt - betting.now()) / 1000));
-    const t = `Next race opens in ${secs}s`;
-    if ($('nextNote').textContent !== t) $('nextNote').textContent = t;
-  } else if ($('nextNote').textContent) $('nextNote').textContent = '';
+  renderNext();
   const why = phase === PHASE.RACING ? renderer.camWhy : '';
   const who = renderer.camSubject && phase === PHASE.RACING && (camMode === 'auto' ? renderer.camWhy && renderer.camWhy !== 'pack' : true)
     ? MARBLE_DATA[renderer.camSubject.index].name + (why && why !== 'pack' ? ' · ' + why : '') : why;
@@ -1430,6 +1566,7 @@ if ('ResizeObserver' in window) {
   for (const el of document.querySelectorAll('[data-hud]')) ro.observe(el);
 }
 $('nextRace').onclick = newRound;
+$('resConnect').onclick = () => openWallet();
 
 /* ------------------------------ the wallet ------------------------------ */
 
@@ -1578,10 +1715,7 @@ $('camToggle').onclick = () => {
       sync: onNetSync,
       settled: onNetSettled,
       hello: renderAccount,
-      payout: (d) => {
-        if (d.status !== 'confirmed' || !d.sigs.length || !betting.settled || betting.settled.id !== d.id || !betting.settled.you?.payout) return;
-        announce(`<span class="msg"><b>Paid out on Solana.</b> <a href="${explorer(d.sigs[0], betting.cluster)}" target="_blank" rel="noopener noreferrer">View transaction</a></span>`, 'in');
-      },
+      payout: () => renderResultLinks(),
       chain: () => { renderFair(); if (phase === PHASE.BETTING) renderBetButton(); },
       changed: () => { renderTote(); renderWallet(); renderStakes(); renderBetButton(); },
       error: (msg) => announce(`<span class="msg">${esc(msg)}</span>`, 'out'),
@@ -1604,9 +1738,17 @@ window.__mr2d = {
   get netRound() { return netRound; },
   get bettingLive() { return betting; },
   pause(on = true) { paused = on; },
+  /** Run `n` frames by hand (16.7 ms each), for when the pane is hidden and the browser has paused requestAnimationFrame. */
+  pump(n = 1, ms = 1000 / 60) {
+    const raf = window.requestAnimationFrame;
+    window.requestAnimationFrame = () => 0;                 // the real loop re-arms itself when the pane shows again
+    try { let t = performance.now(); for (let i = 0; i < n; i++) { t += ms; frame(t); } } finally { window.requestAnimationFrame = raf; }
+  },
   /** Redraw the market and dock after poking `bettingLive` by hand (to look at every dock state), and fake a failed bet. */
   render() { renderTote(); },
   fail(msg = 'Bet cancelled in the wallet') { onBetFailed(msg); },
+  /** Re-draw the result screen with part of the settlement overridden, to look at every outcome (win, place, loss, void). */
+  settle(patch = {}) { if (phase !== PHASE.FINISHED) return; settleInfo = { ...settleInfo, ...patch }; showResult(); },
   skip() { if (phase === PHASE.BETTING) { betting.placeBet(); enterCountdown(); } },
   ready() { if (phase === PHASE.BETTING) { betting.placeBet(); enterReady(); } },
   /** Wind the lobby clock down to `secs`, for testing the expiry path. */

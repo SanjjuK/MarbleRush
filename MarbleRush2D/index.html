@@ -174,29 +174,69 @@
   <div class="banner" id="banner" hidden></div>
 
   <!-- ============================ overlays ============================ -->
+  <!-- Countdown: three ivory lamps, one per second, out at GO. The HUD steps back to the edges. -->
   <div class="overlay lights" id="countdownOverlay" hidden>
-    <div class="gantry" id="gantry"><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="count" id="countdownValue">3</div>
-    <p id="countdownNote">Marbles ready</p>
+    <div class="gantry-wrap">
+      <div class="wires" aria-hidden="true"><i></i><i></i></div>
+      <div class="gantry" id="gantry" role="img" aria-label="Start lights"><i></i><i></i><i></i></div>
+    </div>
+    <div class="count" id="countdownValue" aria-live="assertive">3</div>
+    <p id="countdownNote">Marbles in the gate</p>
   </div>
+  <div class="ridingchip" id="ridingChip" hidden></div>
 
   <canvas id="confetti" aria-hidden="true"></canvas>
 
-  <div class="overlay" id="resultOverlay" hidden>
-    <div class="card result">
-      <p class="kicker">Chequered flag</p>
+  <!-- Results: the course stays visible. Final order and replay on the left, the podium over the course,
+       my result and the next-round ring on the right. The two data-hud columns match the tower and the
+       right stack, so the course is framed exactly as it was in the race. -->
+  <div class="results" id="resultOverlay" hidden>
+    <button type="button" class="paidpill" id="paidPill" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+      <b id="paidTxt">Round paid out on Solana</b><b aria-hidden="true">·</b><u id="paidSig"></u>
+    </button>
+
+    <section class="podiumcard" id="podiumCard" aria-label="Podium">
+      <div class="pc-head"><span class="pc-tag" id="pcTag">Winner</span><span class="lbl">Finish cam</span></div>
+      <div class="winner"><span class="tok lg" id="winSwatch"></span>
+        <div class="wn"><h2 id="winName">-</h2><span class="sub" id="winSub"></span></div>
+        <span class="wintime" id="winTime">-</span></div>
       <div class="podium" id="podium"></div>
-      <div class="winner"><span class="swatch" id="winSwatch"></span><h2 id="winName">-</h2><span class="wintime" id="winTime">-</span></div>
-      <p class="payout" id="payout"></p>
-      <div class="burst" id="burst" aria-hidden="true"></div>
-      <ol class="final" id="finalOrder"></ol>
-      <div class="koreplay" id="koReplay" hidden>
-        <div class="kohead"><span>Knockout replay</span><span id="koLabel"></span></div>
+    </section>
+
+    <div class="resleft" id="resLeft" data-hud>
+      <section class="card finalpanel" aria-label="Final order">
+        <div class="fo-head"><span class="lbl" id="foTitle">Final order</span><b id="foState">FINISHED</b></div>
+        <ol class="final" id="finalOrder"></ol>
+      </section>
+      <section class="koreplay" id="koReplay" hidden>
         <canvas id="koCanvas"></canvas>
-      </div>
-      <button id="nextRace" class="cta">Next race</button>
-      <p class="nextnote" id="nextNote"></p>
+        <div class="kt"><span class="lbl">Knockout replay</span><span class="kl" id="koLabel"></span></div>
+      </section>
     </div>
+
+    <div class="proofbar" id="proofBar">
+      <span class="proofpill sm" id="resProof"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span id="resProofText">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="resProofHash">-</code></span>
+      <button type="button" class="ghost" id="resProofBtn" hidden>Round proof ↗</button>
+    </div>
+
+    <aside class="resstack" id="resStack" data-hud>
+      <section class="myres" id="myResult" aria-live="polite">
+        <div class="mr-top"><span class="mr-tag" id="resTag">WIN</span><span class="lbl" id="resWho"></span></div>
+        <div class="mr-head"><span class="tok lg" id="resTok"></span><h3 id="resHead"></h3></div>
+        <p class="mr-line" id="resLine" hidden></p>
+        <div class="mr-pay"><span class="lbl" id="resPayLbl">Payout</span><span class="big"><b id="payout">0.00</b> <small id="resCur"></small></span></div>
+        <div class="mr-stats" id="resStats"></div>
+        <button type="button" class="ghost paidlink" id="resPaid" hidden></button>
+        <button type="button" class="cta" id="resConnect" hidden>Connect wallet</button>
+        <div class="burst" id="burst" aria-hidden="true"></div>
+      </section>
+      <section class="nextcard" id="nextCard" role="timer" aria-label="Next round">
+        <div class="nring"><svg viewBox="0 0 96 96" aria-hidden="true"><circle class="rk" cx="48" cy="48" r="42"/><circle class="rf" id="nextFill" cx="48" cy="48" r="42"/></svg><b id="nextSecs">-</b></div>
+        <div class="ntxt"><span class="lbl" id="nextLbl">Next round</span><strong id="nextNote"></strong>
+          <button id="nextRace" class="ghost" hidden>Next race</button></div>
+      </section>
+    </aside>
   </div>
 
   <div class="overlay modal" id="walletOverlay" hidden>

@@ -318,6 +318,21 @@ export class Renderer2D {
                    (s.x + (s.w - TRACK_W * sc) / 2) * dpr, (s.y - this.camY * sc) * dpr);
     this._world(g, this.camY, this.camY + s.h / sc);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._spotlight(g, s, sc);
+  }
+
+  /** A soft glow behind a winning marble (the result screen, view only): `glow` is an rgba() colour. */
+  setSpotlight(index, glow) {
+    const m = /rgba?\(([^)]+)\)/.exec(glow || '');
+    this.spot = m ? { index, inner: glow, outer: `rgba(${m[1].split(',').slice(0, 3).join(',')},0)` } : null;
+  }
+  _spotlight(g, s, sc) {
+    if (!this.spot) return;
+    const mb = this.engine.marbles[this.spot.index];
+    const x = s.x + (s.w - TRACK_W * sc) / 2 + mb.x * sc, y = s.y + (mb.y - this.camY) * sc, r = 36 + 70 * sc;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, this.spot.inner); grad.addColorStop(1, this.spot.outer);
+    g.fillStyle = grad; g.fillRect(x - r, y - r, 2 * r, 2 * r);
   }
 
   /**
