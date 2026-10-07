@@ -182,9 +182,9 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "orderbook": {
-  "swaps": 1.82,
-  "grow": 0.79,
-  "secs": 3.2,
+  "swaps": 2.95,
+  "grow": 1.25,
+  "secs": 6.5,
   "nudge": 0
  },
  "cannons": {
@@ -290,9 +290,9 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "escalator": {
-  "swaps": 1.27,
-  "grow": 1.01,
-  "secs": 3.1,
+  "swaps": 2.2,
+  "grow": 1.74,
+  "secs": 5.9,
   "nudge": 0.025
  },
  "cascade": {
@@ -632,9 +632,9 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "movingwalkway": {
-  "swaps": 0.93,
-  "grow": 0.51,
-  "secs": 2.7,
+  "swaps": 2.23,
+  "grow": 0.79,
+  "secs": 4.5,
   "nudge": 0
  },
  "presale": {

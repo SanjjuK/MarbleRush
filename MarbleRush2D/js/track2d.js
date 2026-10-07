@@ -1620,25 +1620,37 @@ export const SECTIONS = [
     len: 960,
     build(ctx, rng) {
       // Floating conveyor slats, bids and asks, each running left or right
-      // at its own speed, with both ends open. Land on one and it carries you
-      // off whichever end it runs to: a random route every time.
+      // at its own speed and REVERSING on its own beat (Sanjay's idea,
+      // measured: pairs swapped 1.2 in 10 with fixed belts, 1.9 reversing
+      // every 1.0-1.8s; faster, 0.5-0.9s, swapped more but held marbles so
+      // long the field strung out to 8.6s).
       ctx.seg(WALL_L, 20, 250, 100);
       ctx.seg(WALL_R, 20, 550, 100);
-      // And every slat REVERSES on its own beat (Sanjay's idea, measured:
-      // pairs swapped 1.2 in 10 with fixed belts, 1.9 reversing every
-      // 1.0-1.8s; faster, 0.5-0.9s, swapped more but held marbles so long the
-      // field strung out to 8.6s).
-      const flip = () => { const half = Math.round(240 * rng.range(1.0, 1.8)); return { half, phase: Math.floor(rng() * 2 * half) }; };
-      const rows = [[180, 330, 470], [300, 200, 600], [420, 330, 470], [540, 200, 600]];
-      for (const [y, a, b] of rows) {
-        const sp = (rng() < 0.5 ? -1 : 1) * rng.range(180, 320);
-        if (a === 330) {
-          ctx.seg(a, y, b, y, { belt: sp, mu: 0.6, flip: flip() });
-        } else {
-          // Two slats, a gap between.
-          ctx.seg(a - 60, y, a + 60, y, { belt: sp, mu: 0.6, flip: flip() });
-          ctx.seg(b - 60, y, b + 60, y, { belt: -sp, mu: 0.6, flip: flip() });
-        }
+      // SERPENTINE (Sanjay: belts stacked without an offset caught nothing
+      // below). Measured on the old stack, 200 races: only 27% of marbles
+      // ever touched the first belt, 84% the second, 43% and 44% the rest,
+      // 1.5 place swaps in 10, no spread added. Now belts are offset left and
+      // right in turn and the outer end of each is walled off, so a marble
+      // leaves over the one open end, which sits above the next belt: 58%,
+      // 92%, 92% touched, 2.5 swaps, 5.9s through (+1.0s spread), 1 rescue
+      // in 800 races. Four rows swapped no more (2.7) and took 7.4s.
+      // A walled belt must not trap: a marble has to be able to ride its
+      // whole length before the belt reverses, or it ping-pongs for ever
+      // (330 long with the old 1.0-1.8s beat and 180+ speed: 3500 rescues
+      // in 187 races). 220 long, belt 250-330, beat 1.3-1.7s: at least 325
+      // units of travel a spell, 1.5x the length. The beat stops at 1.7s
+      // because a marble waiting at the wall for the belt to turn counts as
+      // stopped after 2.2s (1.9s: 2 rescues in 400 races; 1.5s: 0 but
+      // 2.3 swaps).
+      const mirror = rng() < 0.5, X = (x) => mirror ? TRACK_W - x : x;
+      const beat = () => { const half = Math.round(240 * rng.range(1.3, 1.7)); return { half, phase: Math.floor(rng() * 2 * half) }; };
+      for (let i = 0; i < 3; i++) {
+        const y = 180 + i * 120, closedLeft = i % 2 === 0;
+        const a = closedLeft ? 250 : 430, b = closedLeft ? 470 : 650;
+        const sp = (rng() < 0.5 ? -1 : 1) * rng.range(250, 330);
+        ctx.seg(X(a), y, X(b), y, { belt: sp, mu: 0.6, flip: beat() });
+        const wx = closedLeft ? a : b;
+        ctx.seg(X(wx), y - 40, X(wx), y);
       }
       ctx.seg(WALL_L, 680, 336, 900);
       ctx.seg(WALL_R, 680, 464, 900);
@@ -2050,7 +2062,16 @@ export const SECTIONS = [
       // end. Each belt runs with the slope (flings you on) or against it
       // (carries you back up and off its top end, down the side: a different
       // road). The first build ran the steps into the wall, and a belt
-      // running uphill pinned a marble in that corner.
+      // running uphill pinned a marble in that corner (so did running them
+      // out to 20 from the wall again, 1041 rescues in 300 races: do not).
+      // Sanjay: marbles rode the first belt and skipped the rest. Measured,
+      // 300 races, share of marbles that ever touched belt 1/2/3/4: 98/0/1/15%.
+      // A marble leaves a belt's low end at belt speed and lands about 120
+      // further on, but belts were 470 long and the next one's high end stood
+      // only 30 past that end: every marble overshot it. Now 320 long and a
+      // steeper step (0.75 of the spacing, was 0.58), so the exit lands inside
+      // the next belt: 51/90/79/79% touched, place swaps 0.9 -> 2.1, 0 rescues,
+      // 5.4s through (was 2.7), field spread +2.2s (was +0.7).
       let left = rng() < 0.5;
       const n = V.n ?? 4, dy = 760 / n;
       for (let i = 0; i < n; i++) {
@@ -2059,8 +2080,8 @@ export const SECTIONS = [
         // Grip on an uphill belt stays below the slope's own pull (0.15 against
         // ~0.23): at 0.25 the two balanced and a marble hung still mid-belt.
         const sp = up ? -rng.range(150, 240) : rng.range(250, 450), mu = up ? (TUNE.escalator?.upMu ?? 0.15) : 0.5;
-        if (left) ctx.seg(150, y, 620, y + dy * 0.58, { belt: sp, mu });
-        else ctx.seg(650, y, 180, y + dy * 0.58, { belt: sp, mu });
+        if (left) ctx.seg(150, y, 470, y + dy * 0.75, { belt: sp, mu });
+        else ctx.seg(650, y, 330, y + dy * 0.75, { belt: sp, mu });
         left = !left;
       }
       ctx.seg(WALL_L, 840, 336, 940);
