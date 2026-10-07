@@ -130,7 +130,7 @@ function resetRoundUI() {
   resetTower();
   buildCourseMap();
   lastOdds = [];
-  $('roundTag').textContent = `#${betting.round}`;
+  $('roundTag').textContent = `Round ${betting.round}`;
   document.body.classList.remove('racing');
   // The panels must be laid out before the renderer measures around them.
   requestAnimationFrame(() => renderer.resize());
@@ -147,7 +147,9 @@ function resetRoundUI() {
   accumulator = 0;
   settleInfo = null;
 
-  $('commitment').textContent = (betting.commitment || '').slice(0, 16);
+  const hash = betting.commitment || '';
+  $('commitment').textContent = hash ? `${hash.slice(0, 4)}...${hash.slice(-3)}` : '-';
+  $('commitment').title = hash;
   renderFair();
   $('resultOverlay').hidden = true;
   $('countdownOverlay').hidden = true;
@@ -580,7 +582,21 @@ function renderLobby() {
 }
 
 function renderWallet() {
-  $('balance').textContent = betting.guest ? '-' : `${fmtAmount(betting.balance)} ${cur()}`;
+  const el = $('balance');
+  el.textContent = '';
+  if (betting.guest) el.textContent = '-';
+  else {
+    el.append(fmtAmount(betting.balance) + ' ');
+    const c = document.createElement('small');
+    c.className = 'cur'; c.textContent = cur();
+    el.append(c);
+  }
+  // Low balance (under the minimum bet): a LOW text tag, plus a dot on the avatar. Never the dot alone.
+  const low = !betting.guest && betting.balance < (betting.minBet ?? MIN_BET) - 1e-9;
+  $('lowTag').hidden = !low;
+  const chip = $('walletBtn');
+  chip.classList.toggle('low', low);
+  if (!betting.guest) chip.setAttribute('aria-label', `Wallet ${shortAddr(betting.address)}${low ? ', low balance' : ''}`);
   renderRecord();
 }
 
@@ -719,6 +735,8 @@ function renderFair() {
   label.textContent = text;
   el.classList.toggle('sealing', sealing);
   el.classList.toggle('link', !!sig);
+  el.setAttribute('aria-disabled', sig ? 'false' : 'true');
+  // S9 turns this into the proof card; until then it opens the transaction directly.
   el.onclick = sig ? () => window.open(explorer(sig, c.cluster), '_blank', 'noopener,noreferrer') : null;
   el.title = sig ? 'Open this round\'s transaction on the Solana explorer' : 'The race is fixed by this hash before betting opens; the seed is revealed when the gates open.';
 }
@@ -1110,7 +1128,7 @@ $('nextRace').onclick = newRound;
 
 /* ------------------------------ the wallet ------------------------------ */
 
-function shortAddr(a) { return a ? `${a.slice(0, 4)}…${a.slice(-4)}` : ''; }
+function shortAddr(a) { return a ? `${a.slice(0, 4)}...${a.slice(-4)}` : ''; }
 
 /** The top-bar button, and the balance, follow who is signed in. */
 function renderAccount() {
@@ -1118,8 +1136,12 @@ function renderAccount() {
   document.body.classList.toggle('guest', guest);
   const b = $('walletBtn');
   b.hidden = false;
-  b.classList.toggle('on', !guest);
-  b.textContent = guest ? 'Connect wallet' : shortAddr(betting.address);
+  b.classList.toggle('out', guest);
+  b.innerHTML = guest
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M16 12.5h2M3 9h13a2 2 0 0 0 2-2V5"/></svg><span class="on">Connect</span><span class="off">Not connected</span>'
+    : '<span class="av"><i></i></span><span class="addr"></span>';
+  if (guest) b.setAttribute('aria-label', 'Connect wallet');
+  else b.querySelector('.addr').textContent = shortAddr(betting.address);
   b.onclick = openWallet;
   renderWallet();
   if (phase === PHASE.BETTING) renderBetButton();
