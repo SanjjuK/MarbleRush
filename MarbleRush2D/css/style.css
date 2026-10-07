@@ -477,6 +477,22 @@ body.race-on .cambar { display: flex; }
 .nextnote { margin: 8px 0 0; text-align: center; color: var(--text-2); font-size: var(--fs-sm); }
 .nextnote:empty { display: none; }
 
+/* Appearance: the palette switch (Ivory | Champagne), in the wallet card and at the end of the onboarding. */
+.appear { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: var(--s2) 0; padding-top: var(--s2); border-top: 1px solid var(--line); }
+.appear .lbl { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.seg { display: flex; padding: var(--s-half); gap: var(--s-half); border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid var(--line-strong); }
+.seg button {
+  min-height: var(--tap); padding: 0 var(--s2) 0 var(--s1); display: inline-flex; align-items: center; gap: var(--s1);
+  border: 0; border-radius: var(--r-pill); background: transparent; color: var(--text-2);
+  font: 600 var(--fs-md) var(--font-ui); cursor: pointer; transition: background .15s, color .15s;
+}
+.seg button:hover { color: var(--text-1); }
+.seg button[aria-checked="true"] { background: var(--surface-3); color: var(--text-1); box-shadow: 0 0 0 1px var(--line-strong) inset; }
+/* The swatch previews each palette's accent, so it must not follow the live palette. */
+.seg .sw { width: 16px; height: 16px; border-radius: 50%; background: var(--sw); box-shadow: 0 0 0 1px var(--line-strong); }
+.seg [data-p="ivory"] { --sw: #F4EFE6; }
+.seg [data-p="champagne"] { --sw: #D9C08C; }
+
 .help .steps { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; color: var(--text-2); font-size: var(--fs-sm); }
 .help .steps b { color: var(--text-1); }
 .help .note { color: var(--text-2); font-size: var(--fs-sm); margin: 0 0 14px; }

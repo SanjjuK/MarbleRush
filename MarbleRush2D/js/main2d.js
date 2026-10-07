@@ -1128,6 +1128,44 @@ $('nextRace').onclick = newRound;
 
 /* ------------------------------ the wallet ------------------------------ */
 
+/* ------------------------------ appearance ------------------------------ */
+
+const PALETTES = [['ivory', 'Ivory'], ['champagne', 'Champagne']];
+const palette = window.mrPalette || { get: () => 'ivory', set() {} };   // palette.js is a plain script in <head>
+
+/** The "Appearance" row: a two-option segmented control, shared by the wallet card and the onboarding sheet. */
+function appearanceRow() {
+  const cur = palette.get();
+  return `<div class="appear"><span class="lbl" id="appearLbl">Appearance</span>` +
+    `<div class="seg" role="radiogroup" aria-labelledby="appearLbl">` +
+    PALETTES.map(([id, name]) => `<button type="button" role="radio" data-p="${id}" aria-checked="${id === cur}" tabindex="${id === cur ? 0 : -1}"><i class="sw"></i>${name}</button>`).join('') +
+    `</div></div>`;
+}
+function syncAppearance() {
+  const cur = palette.get();
+  for (const b of document.querySelectorAll('.seg [data-p]')) {
+    const on = b.dataset.p === cur;
+    b.setAttribute('aria-checked', on); b.tabIndex = on ? 0 : -1;
+  }
+}
+document.addEventListener('palettechange', syncAppearance);
+// One delegated listener: the row is rebuilt every time the wallet card opens.
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.seg [data-p]');
+  if (b) palette.set(b.dataset.p);
+});
+document.addEventListener('keydown', (e) => {
+  const b = e.target.closest && e.target.closest('.seg [data-p]');
+  if (!b || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  e.preventDefault();
+  const i = PALETTES.findIndex(([id]) => id === b.dataset.p);
+  const next = PALETTES[(i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + PALETTES.length) % PALETTES.length][0];
+  palette.set(next);
+  const nb = b.parentElement.querySelector(`[data-p="${next}"]`);
+  if (nb) nb.focus();
+});
+$('helpAppearance').innerHTML = appearanceRow();
+
 function shortAddr(a) { return a ? `${a.slice(0, 4)}...${a.slice(-4)}` : ''; }
 
 /** The top-bar button, and the balance, follow who is signed in. */
@@ -1187,7 +1225,7 @@ function openWallet(err = '') {
       `<p class="kicker">Your wallet</p><code class="walletaddr">${betting.address}</code>` +
       `<p class="note">Signed in on Solana devnet. Other players see you as <b>${shortAddr(betting.address)}</b>.</p>` +
       `<div id="walletTokens"></div><p class="walleterr" id="walletErr"></p>` +
-      `<button id="walletOut" class="cta">Disconnect</button>`;
+      `<button id="walletOut" class="cta">Disconnect</button>` + appearanceRow();
     $('walletOut').onclick = async () => { await signOut(); location.reload(); };
     loadTokenRows();
   } else {
@@ -1199,7 +1237,7 @@ function openWallet(err = '') {
         ? found.map(w => `<button class="walletopt" data-w="${w.id}">${w.name}<small>Detected</small></button>`).join('')
         : `<p class="note">No Solana wallet found in this browser. Install one, then reload:</p>` +
           WALLET_LINKS.map(l => `<a class="walletopt" href="${l.url}" target="_blank" rel="noopener noreferrer">${l.name}<small>Install</small></a>`).join('')) +
-      `<p class="walleterr" id="walletErr">${msg}</p><button id="walletClose" class="cta">Close</button>`;
+      `<p class="walleterr" id="walletErr">${msg}</p><button id="walletClose" class="cta">Close</button>` + appearanceRow();
     for (const btn of card.querySelectorAll('[data-w]')) {
       btn.onclick = async () => {
         btn.disabled = true; $('walletErr').textContent = '';

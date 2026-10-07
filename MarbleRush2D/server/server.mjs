@@ -701,7 +701,8 @@ async function api(req, res, url) {
 async function statics(req, res, url) {
   let rel;
   try { rel = decodeURIComponent(url.pathname).replace(/^\/+/, ''); } catch { res.writeHead(400); return res.end('bad request'); }
-  if (rel === '' ) { res.writeHead(302, { location: '/MarbleRush2D/' }); return res.end(); }
+  // Keep the query string (?palette=, ?only=) across the redirect.
+  if (rel === '' ) { res.writeHead(302, { location: '/MarbleRush2D/' + url.search }); return res.end(); }
   if (rel.endsWith('/')) rel += 'index.html';
   const file = path.resolve(ROOT, rel);
   if (!file.startsWith(ROOT + path.sep) || !SERVED.some(re => re.test(rel))) {
