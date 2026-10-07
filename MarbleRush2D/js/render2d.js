@@ -181,7 +181,10 @@ export class Renderer2D {
     const focus = this._focus(phase);
 
     const viewH = this.safe.h / this.scale;
-    const want = Math.max(0, Math.min(focus - viewH * 0.42, E.track.height - viewH));
+    // The field normally sits 42% down the clear area. When the clear area is only a strip (a phone while betting:
+    // the ring above, the sheet below) the gate is brought up under its top edge so the marbles stay in view.
+    const anchor = phase !== 'racing' && this.safe.h < 420 ? 0.12 : 0.42;
+    const want = Math.max(0, Math.min(focus - viewH * anchor, E.track.height - viewH));
     const k = phase === 'racing' ? 4.5 : 8;
     this.camY += (want - this.camY) * Math.min(1, dt * k);
 

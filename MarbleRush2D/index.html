@@ -92,36 +92,25 @@
       <span class="ring-lbl" id="lobbyLabel">Betting</span>
       <strong id="lobbyClock">0:30</strong>
       <span class="ring-cap">left to bet</span>
+      <span class="ring-cap ring-rnd" id="ringRnd"></span>
     </div>
   </div>
 
-  <!-- ================== betting: proof, live bets, form guide ================== -->
-  <aside class="leftcol" id="betLeft" data-hud>
-    <section class="card proofcard" id="proofCard">
-      <span class="lbl">Provably fair</span>
-      <div class="proofpill" id="proofPill">
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
-        <span id="proofState">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="proofHash">-</code>
-      </div>
-      <p id="proofText"></p>
-      <button type="button" class="ghost" id="proofVerify" hidden>Verify seal ↗</button>
-    </section>
-
-    <section class="card feedcard">
-      <div class="card-head"><span>Live bets <span id="feedCount" class="count">-</span></span><span class="livedot"><i aria-hidden="true"></i>LIVE</span></div>
-      <ul id="feed" class="feed"></ul>
-    </section>
-
-    <!-- recent races and your record: P2, folded away -->
-    <details class="card formguide" id="formGuide">
-      <summary>Form guide</summary>
-      <div class="fg-block"><span class="lbl">Recent races</span><ul id="history" class="history"></ul></div>
-      <div class="fg-block"><span class="lbl">Your record</span><dl id="record" class="record"></dl></div>
-    </details>
-  </aside>
+  <!-- Phones only: the proof pill and DEVNET under the ring (the top bar's shield steps aside while betting). -->
+  <div class="mproof" id="mProof" data-hud="top">
+    <button type="button" class="proofpill sm" id="mFair">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+      <span id="mFairLabel">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="mFairHash">-</code>
+    </button>
+    <span class="devnet">DEVNET</span>
+  </div>
 
   <!-- ======================= right: market + slip ===================== -->
   <aside class="rail" id="rail" data-hud>
+    <!-- Phones: the rail is the bottom sheet (peek / half / full). The handle drags it; the latest bet is its first line. -->
+    <button type="button" class="grab" id="sheetGrab" aria-label="Market sheet: drag, or press up and down to resize"><span></span></button>
+    <button type="button" class="betpeek" id="betPeek" aria-label="Latest bet. Open all live bets"></button>
+
     <!-- race only: what my marble is doing and what it pays; tap to follow it -->
     <section class="mycard" id="myMarble" hidden></section>
 
@@ -145,8 +134,9 @@
       <div class="mk-head">
         <div class="mk-pool"><span class="lbl">Total pool</span><span class="amt"><b id="poolTotal">0.00</b> <small id="poolCur"></small></span></div>
         <div class="mk-rules"><b id="places">2 places paid</b><span>after <span id="rakePct">5%</span> rake</span></div>
+        <span class="mk-short" id="mkShort"></span>
       </div>
-      <div class="mk-cols" aria-hidden="true"><span>Marble</span><span>Win</span><span>2nd</span><span>Pool</span><span>Bkrs</span></div>
+      <div class="mk-cols" aria-hidden="true"><span>Marble<em class="m-only"> · tap for 2nd odds</em></span><span>Win</span><span>2nd</span><span>Pool</span><span>Bkrs</span></div>
       <ul id="tote" class="runners"></ul>
 
       <!-- The dock keeps one height in every state: a 40px status row, 48px chips, the 56px button, a 20px hint. -->
@@ -161,6 +151,38 @@
         <p class="fineprint" id="betHint"></p>
       </div>
     </section>
+
+    <!-- ================== betting: proof, live bets, form guide ================== -->
+    <!-- A fixed left column on desktop. On phones it is the rest of the sheet, below the market (the full snap). -->
+    <aside class="leftcol" id="betLeft" data-hud>
+      <section class="card proofcard" id="proofCard">
+        <span class="lbl">Provably fair</span>
+        <div class="proofpill" id="proofPill">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+          <span id="proofState">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="proofHash">-</code>
+        </div>
+        <p id="proofText"></p>
+        <button type="button" class="ghost" id="proofVerify" hidden>Verify seal ↗</button>
+      </section>
+
+      <section class="card feedcard">
+        <div class="card-head"><span>Live bets <span id="feedCount" class="count">-</span></span><span class="livedot"><i aria-hidden="true"></i>LIVE</span></div>
+        <ul id="feed" class="feed"></ul>
+      </section>
+
+      <!-- recent races and your record: P2, folded away -->
+      <details class="card formguide" id="formGuide">
+        <summary>Form guide</summary>
+        <div class="fg-block"><span class="lbl">Recent races</span><ul id="history" class="history"></ul></div>
+        <div class="fg-block"><span class="lbl">Your record</span><dl id="record" class="record"></dl></div>
+      </details>
+
+      <!-- Phones: the top-bar chip is display-only, so the account is one tap away here. -->
+      <button type="button" class="walletrow" id="walletRow"><span class="lbl">Wallet</span><b id="walletRowTxt">Connect</b></button>
+    </aside>
+
+    <!-- Phones, during the race: the sheet is locked at peek and is this bar (the only bottom band). -->
+    <div class="peekbar" id="peekBar"></div>
   </aside>
 
   <!-- camera: the director, the pack, the leader, or any one marble -->
@@ -196,47 +218,57 @@
       <b id="paidTxt">Round paid out on Solana</b><b aria-hidden="true">·</b><u id="paidSig"></u>
     </button>
 
-    <section class="podiumcard" id="podiumCard" aria-label="Podium">
-      <div class="pc-head"><span class="pc-tag" id="pcTag">Winner</span><span class="lbl">Finish cam</span></div>
-      <div class="winner"><span class="tok lg" id="winSwatch"></span>
-        <div class="wn"><h2 id="winName">-</h2><span class="sub" id="winSub"></span></div>
-        <span class="wintime" id="winTime">-</span></div>
-      <div class="podium" id="podium"></div>
-    </section>
+    <!-- On desktop this wrapper is display:contents and the panels sit where they always did. On phones it is the
+         result sheet (frames 12a to 12d, brief section 7): payout, podium, finishing order, with the knockout replay
+         pulled up from below and the next-round bar pinned in the thumb zone. -->
+    <div class="resshell" id="resSheet" data-hud>
+      <button type="button" class="grab" id="resGrab" aria-label="Result sheet: drag, or press up and down to resize"><span></span></button>
+      <p class="kopull" id="koPull" hidden>Pull up · knockout replay</p>
+      <section class="podiumcard" id="podiumCard" aria-label="Podium">
+        <div class="pc-head"><span class="pc-tag" id="pcTag">Winner</span><span class="lbl">Finish cam</span></div>
+        <div class="winner"><span class="tok lg" id="winSwatch"></span>
+          <div class="wn"><h2 id="winName">-</h2><span class="sub" id="winSub"></span></div>
+          <span class="wintime" id="winTime">-</span></div>
+        <div class="podium" id="podium"></div>
+      </section>
 
-    <div class="resleft" id="resLeft" data-hud>
-      <section class="card finalpanel" aria-label="Final order">
-        <div class="fo-head"><span class="lbl" id="foTitle">Final order</span><b id="foState">FINISHED</b></div>
-        <ol class="final" id="finalOrder"></ol>
-      </section>
-      <section class="koreplay" id="koReplay" hidden>
-        <canvas id="koCanvas"></canvas>
-        <div class="kt"><span class="lbl">Knockout replay</span><span class="kl" id="koLabel"></span></div>
-      </section>
+      <div class="resleft" id="resLeft" data-hud>
+        <section class="card finalpanel" aria-label="Final order">
+          <div class="fo-head"><span class="lbl" id="foTitle">Final order</span><b id="foState">FINISHED</b></div>
+          <ol class="final" id="finalOrder"></ol>
+        </section>
+        <section class="koreplay" id="koReplay" hidden>
+          <canvas id="koCanvas"></canvas>
+          <div class="kt"><span class="lbl">Knockout replay</span><span class="kl" id="koLabel"></span></div>
+        </section>
+      </div>
+
+      <div class="proofbar" id="proofBar">
+        <span class="proofpill sm" id="resProof"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span id="resProofText">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="resProofHash">-</code></span>
+        <button type="button" class="ghost" id="resProofBtn" hidden>Round proof ↗</button>
+      </div>
+
+      <aside class="resstack" id="resStack" data-hud>
+        <section class="myres" id="myResult" aria-live="polite">
+          <div class="mr-top"><span class="mr-tag" id="resTag">WIN</span><span class="lbl" id="resWho"></span></div>
+          <div class="mr-head"><span class="tok lg" id="resTok"></span><h3 id="resHead"></h3></div>
+          <p class="mr-line" id="resLine" hidden></p>
+          <div class="mr-pay"><span class="lbl" id="resPayLbl">Payout</span><span class="big"><b id="payout">0.00</b> <small id="resCur"></small></span></div>
+          <div class="mr-stats" id="resStats"></div>
+          <button type="button" class="ghost paidlink" id="resPaid" hidden></button>
+          <button type="button" class="cta" id="resConnect" hidden>Connect wallet</button>
+          <div class="burst" id="burst" aria-hidden="true"></div>
+        </section>
+        <section class="nextcard" id="nextCard" role="timer" aria-label="Next round">
+          <div class="nring"><svg viewBox="0 0 96 96" aria-hidden="true"><circle class="rk" cx="48" cy="48" r="42"/><circle class="rf" id="nextFill" cx="48" cy="48" r="42"/></svg><b id="nextSecs">-</b></div>
+          <div class="ntxt"><span class="lbl" id="nextLbl">Next round</span><strong id="nextNote"></strong>
+            <button id="nextRace" class="ghost" hidden>Next race</button></div>
+          <button type="button" class="cta" id="nextConnect" hidden>Connect wallet</button>
+        </section>
+      </aside>
+  
+      <div class="podm" id="podiumM" aria-label="Podium"></div>
     </div>
-
-    <div class="proofbar" id="proofBar">
-      <span class="proofpill sm" id="resProof"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span id="resProofText">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="resProofHash">-</code></span>
-      <button type="button" class="ghost" id="resProofBtn" hidden>Round proof ↗</button>
-    </div>
-
-    <aside class="resstack" id="resStack" data-hud>
-      <section class="myres" id="myResult" aria-live="polite">
-        <div class="mr-top"><span class="mr-tag" id="resTag">WIN</span><span class="lbl" id="resWho"></span></div>
-        <div class="mr-head"><span class="tok lg" id="resTok"></span><h3 id="resHead"></h3></div>
-        <p class="mr-line" id="resLine" hidden></p>
-        <div class="mr-pay"><span class="lbl" id="resPayLbl">Payout</span><span class="big"><b id="payout">0.00</b> <small id="resCur"></small></span></div>
-        <div class="mr-stats" id="resStats"></div>
-        <button type="button" class="ghost paidlink" id="resPaid" hidden></button>
-        <button type="button" class="cta" id="resConnect" hidden>Connect wallet</button>
-        <div class="burst" id="burst" aria-hidden="true"></div>
-      </section>
-      <section class="nextcard" id="nextCard" role="timer" aria-label="Next round">
-        <div class="nring"><svg viewBox="0 0 96 96" aria-hidden="true"><circle class="rk" cx="48" cy="48" r="42"/><circle class="rf" id="nextFill" cx="48" cy="48" r="42"/></svg><b id="nextSecs">-</b></div>
-        <div class="ntxt"><span class="lbl" id="nextLbl">Next round</span><strong id="nextNote"></strong>
-          <button id="nextRace" class="ghost" hidden>Next race</button></div>
-      </section>
-    </aside>
   </div>
 
   <div class="overlay modal" id="walletOverlay" hidden>

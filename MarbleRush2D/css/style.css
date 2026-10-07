@@ -148,7 +148,7 @@ body.racing .live { display: inline-block; }
 .walletbtn .av i { display: none; position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
 .walletbtn.low .av i { display: block; }
 .walletbtn svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linejoin: round; }
-.walletbtn .off { display: none; }
+.walletbtn .off, .walletbtn .watch { display: none; }
 /* Signed out on desktop: the accent Connect button. */
 .walletbtn.out { padding: 0 var(--s3) 0 var(--s2); border: 0; background: var(--accent); color: var(--accent-ink); font: 600 var(--fs-md) var(--font-ui); letter-spacing: 0; }
 .walletbtn.out:hover { background: var(--accent); filter: brightness(1.08); }
@@ -825,6 +825,11 @@ body.paid .topbar .clock { visibility: hidden; }
 .help .steps b { color: var(--text-1); }
 .help .note { color: var(--text-2); font-size: var(--fs-sm); margin: 0 0 14px; }
 
+/* Phone-only pieces are hidden everywhere else; the phone block below turns them on. */
+.grab, .betpeek, .mk-short, .m-only, .mproof, .ring-rnd, .peekbar, .walletrow, .podm, .kopull, #nextConnect, .runners li .more { display: none; }
+.resshell { display: contents; }
+.results > *, .resshell > * { pointer-events: auto; }
+
 /* ================================ mobile ================================ */
 
 @media (max-width: 900px) {
@@ -856,73 +861,290 @@ body.paid .topbar .clock { visibility: hidden; }
   .walletbtn.out .on { display: none; }
   .walletbtn.out .off { display: inline; }
 
-  /* The tower: a compact overlay in the corner, only once the race is on.
-     --hud: overlay tells the renderer NOT to frame the course around it. */
-  .tower { --hud: overlay; display: none; left: 8px; top: calc(var(--top-h) + 16px); width: 172px; padding: 6px; gap: 0; border-radius: 12px; }
+  /* Betting: the ring carries the clock, so the top bar's own copy and its shield step aside. */
+  body:not(.race-on) .topbar .clock { visibility: hidden; }
+  body:not(.race-on) .topbar .fair { display: none; }
+  /* The chip is display-only here: Connect lives on the Bet button and the spectator bar, the account at the foot of the full sheet. */
+  .walletbtn { pointer-events: none; }
+  body.race-on .walletbtn.out .off { display: none; }
+  body.race-on .walletbtn.out .watch { display: inline; }
+
+  /* ---------------- betting: ring, proof pill, and the bottom sheet (frame 3) ---------------- */
+  body:not(.race-on) .ring { display: flex; width: 128px; height: 128px; top: calc(var(--top-h) + var(--s2)); }
+  .ring strong { font-size: var(--fs-3xl); }
+  .ring-lbl { font-size: var(--fs-xs); letter-spacing: .2em; }
+  .ring-cap:not(.ring-rnd) { display: none; }
+  .ring-rnd { display: block; letter-spacing: .12em; }
+  body:not(.race-on) .mproof {
+    position: fixed; z-index: 11; left: 0; right: 0; top: calc(var(--top-h) + var(--s2) + 128px + var(--s1));
+    display: flex; align-items: center; justify-content: center; gap: var(--s1); pointer-events: none;
+  }
+  .mproof > * { pointer-events: auto; }
+  .mproof .proofpill { position: relative; min-height: 36px; padding: 0 var(--s2) 0 var(--s1); gap: var(--s1); }
+  .mproof .proofpill::after { content: ''; position: absolute; inset: -4px 0; }          /* a 44px target for a 36px pill */
+  .mproof .proofpill span { font-size: var(--fs-sm); }
+  .mproof .proofpill code { font-size: var(--fs-md); }
+  .mproof .devnet { display: inline-flex; background: var(--bg); }
+  body.sheet-full .ring, body.sheet-full .mproof { visibility: hidden; }
+
+  /* The rail IS the sheet: peek (88px + safe area), half (opens here), full. Its height is --sheet-h, set by the
+     sheet controller in main2d.js; the renderer re-frames the course when it lands. */
+  .rail {
+    left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: none; height: var(--sheet-h, min(520px, 66dvh));
+    padding: 0 var(--s2); gap: 0; border-radius: var(--r-xl) var(--r-xl) 0 0; overflow: hidden;
+    background: color-mix(in srgb, var(--surface-1) 90%, transparent); border: 1px solid var(--line); border-width: 1px 0 0 0;
+    box-shadow: 0 -16px 48px -24px var(--shadow);
+    backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+    transition: height .28s cubic-bezier(.2, .8, .2, 1), background .2s, border-color .2s;
+  }
+  .rail.dragging { transition: none; }
+  .rail[data-snap="full"] { overflow-y: auto; overscroll-behavior: contain; }
+  .rail > * { margin-top: var(--s1); }
+  .rail > .cam, .rail > .mycard, .rail > .finalpool { display: none !important; }      /* race furniture: the peek bar replaces it */
+  .rail > .grab, .rail > .betpeek { margin-top: 0; }
+  .grab {
+    position: relative; display: block; flex: none; width: 100%; height: var(--s2); padding: 0; border: 0; background: transparent;
+    cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent;
+  }
+  .grab span { position: absolute; left: 50%; top: 6px; width: 40px; height: 4px; margin-left: -20px; border-radius: var(--r-hair); background: var(--line-strong); }
+  .grab::after { content: ''; position: absolute; left: 0; right: 0; top: -8px; height: var(--tap); }   /* a 44px grab zone over the first rows */
+  .grab:focus-visible span { background: var(--accent); }
+  .rail.locked > .grab, .resshell.locked > .grab { pointer-events: none; cursor: default; }
+  .rail.locked > .grab span, .resshell.locked > .grab span { opacity: .5; }
+  .rail[data-snap="full"] > .grab, .resshell[data-snap="full"] > .grab { position: sticky; top: 0; z-index: 2; background: var(--surface-1); margin: 0 calc(-1 * var(--s2)); width: auto; }
+
+  .betpeek {
+    display: flex; flex: none; align-items: center; gap: var(--s1); width: 100%; min-height: var(--tap); padding: 0 var(--s2); border: 0; border-radius: var(--r-md);
+    background: var(--surface-2); color: var(--text-1); text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden;
+  }
+  .betpeek .pulse { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--text-1); animation: mr-blink 1.6s ease-in-out infinite; }
+  .betpeek .stripe { width: 3px; height: 16px; flex: none; border-radius: var(--r-hair); background: var(--c); }
+  .betpeek b { font: 600 var(--fs-md) var(--font-data); letter-spacing: .02em; }
+  .betpeek .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-sm); color: var(--text-2); }
+  .betpeek .whale { height: 18px; flex: none; display: inline-flex; align-items: center; padding: 0 var(--s-half); border-radius: var(--r-sm); border: 1px solid var(--text-2); font: 700 var(--fs-xs) var(--font-data); font-style: normal; letter-spacing: .1em; color: var(--text-1); }
+  .betpeek .more { margin-left: auto; font: 600 var(--fs-xs) var(--font-data); letter-spacing: .12em; color: var(--text-2); }
+
+  /* The market card dissolves into the sheet: its rows are the sheet's own, and the dock is pinned to the sheet's foot. */
+  .card.market { display: contents; }
+  .rail { --mk-cols: minmax(0, 1fr) auto; }
+  .mk-head { order: 2; flex: none; height: 24px; margin-top: var(--s-half); padding: 0 var(--s-half); border: 0; align-items: baseline; }
+  .mk-pool { flex-direction: row; align-items: baseline; gap: var(--s1); }
+  .mk-pool .lbl, .mk-rules { display: none; }
+  .mk-pool .amt::before { content: 'Pool '; font: 700 var(--fs-lg) var(--font-data); }
+  .mk-pool .amt b { font-size: var(--fs-lg); }
+  .mk-pool .amt small { font-size: var(--fs-sm); }
+  .mk-short { display: block; font: 600 var(--fs-sm) var(--font-data); letter-spacing: .06em; color: var(--text-2); white-space: nowrap; }
+  .mk-cols { order: 3; flex: none; display: flex; justify-content: space-between; align-items: center; height: 16px; margin-top: var(--s1); padding: 0 var(--s2); }
+  .mk-cols span:nth-child(n+3) { display: none; }
+  .m-only { display: inline; text-transform: none; letter-spacing: 0; font-style: normal; font-family: var(--font-ui); font-weight: 400; }
+  .runners { order: 4; flex: none; gap: var(--s-half); margin-top: var(--s-half); }
+  .runners li { height: var(--tap); padding: 0 var(--s2); grid-template-columns: var(--mk-cols); }
+  .runners li .who { display: grid; grid-template-columns: 4px 24px minmax(0, 1fr); gap: var(--s1); }
+  .runners li .stripe { height: 28px; }
+  .runners li .n { width: auto; font-size: var(--fs-md); }
+  .runners li .id { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s1); align-items: baseline; line-height: 1.2; }
+  .runners li .nm { font-size: var(--fs-md); }
+  .runners li .more { display: none; grid-column: 1 / -1; font: 600 var(--fs-xs) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .runners li.sel .more { display: block; }
+  .runners li .win { font-size: var(--fs-2xl); }
+  .runners li .win.long { font-size: var(--fs-xl); }
+  .runners li .pl, .runners li .sh, .runners li .bk { display: none; }
+
+  /* The rest of the sheet, at full: the proof card, live bets, form guide, wallet. */
+  body:not(.race-on) .rail .leftcol {
+    --hud: overlay; order: 5; position: static; z-index: auto; display: none; width: auto; overflow: visible; gap: var(--s1);
+  }
+  body:not(.race-on) .rail[data-snap="full"] .leftcol { display: flex; }
+  .rail .leftcol .card { padding: var(--s2); border-radius: var(--r-lg); background: var(--surface-2); border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .rail .leftcol .proofcard { background: var(--surface-2); }
+  .rail .leftcol .formguide { padding: 0; }
+  .rail .leftcol .feedcard { padding: var(--s1) var(--s2) var(--s-half) !important; }
+  .walletrow {
+    display: none; align-items: center; justify-content: space-between; width: 100%; min-height: var(--s7); padding: 0 var(--s2);
+    border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: transparent; color: var(--text-1); cursor: pointer;
+  }
+  body.net .walletrow { display: flex; }
+  .walletrow b { font: 600 var(--fs-md) var(--font-data); letter-spacing: .04em; }
+  .rail[data-snap="peek"] #slip { visibility: hidden; }
+
+  /* The dock: one block in the thumb zone. A 24px status row, then the stake chips beside the Bet button (frame 3). */
+  .slip {
+    order: 6; margin: auto calc(-1 * var(--s2)) 0; padding: var(--s1) var(--s2) calc(var(--s1) + var(--safe-b));
+    position: sticky; bottom: 0; z-index: 3; background: var(--surface-1); border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "row row" "stakes cta" "hint hint"; gap: var(--s1);
+  }
+  .slip-row { grid-area: row; height: 24px; }
+  .notice { min-height: 24px; height: 24px; padding: 0 var(--s1); border-radius: var(--r-sm); }
+  .notice .tag { height: 16px; }
+  .stakes { grid-area: stakes; grid-template-columns: repeat(var(--n, 4), 44px); gap: var(--s-half); }
+  .stakes button { height: var(--s7); border-radius: var(--r-md); font-size: var(--fs-lg); }
+  .slip .cta { grid-area: cta; height: var(--s7); min-height: var(--s7); padding: 0 var(--s1); font-size: var(--fs-lg); line-height: 1.1; text-align: center; text-wrap: balance; }
+  .slip .cta[data-k="ready"] { white-space: nowrap; }
+  .slip .cta .bl { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .slip .cta .bt { font-size: var(--fs-xl); line-height: 1; }
+  .slip .cta .bp { font-size: var(--fs-md); font-weight: 600; line-height: 1; }
+  .slip .cta[data-k="busy"], .slip .cta[data-k="done"], .slip .cta[data-k="retry"], .slip .cta[data-k="idle"] { font-size: var(--fs-md); }
+  .slip[data-k="cta"] .stakes { display: none; }
+  .slip[data-k="cta"] .cta { grid-column: 1 / -1; font-size: var(--fs-xl); }
+  .slip.stack { grid-template-areas: "row row" "stakes stakes" "cta cta" "hint hint"; }
+  .slip.stack .stakes { grid-template-columns: repeat(var(--n, 4), 1fr); }
+  .fineprint { grid-area: hint; }
+
+  /* ---------------- race: the strip, the banner, the camera chips and the peek bar (frame 7) ---------------- */
+  /* The tower becomes a slim classification strip under the top bar. --hud: overlay, so the course is NOT framed around it. */
+  .tower {
+    --hud: overlay; display: none; left: var(--s1); right: var(--s1); top: calc(var(--top-h) + var(--s2)); width: auto;
+    padding: var(--s-half); gap: 0; border-radius: var(--r-lg); background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
   body.race-on .tower { display: flex; }
-  .tower-head, .tower-prog, .tower-sec .lbl { display: none; }
-  .tower-sec { padding: 0 2px 5px; }
-  .sector { max-width: 136px; font-size: 10px; }
-  .tower-rows { --row-gap: 3px; }
-  .tower-rows li { height: 24px; grid-template-columns: 20px 3px minmax(0, 1fr) auto; gap: 5px; padding: 0 5px 0 0; border-radius: 6px; border-width: 0; }
-  .tower-rows li .pos { font-size: 13px; text-align: center; }
-  .tower-rows li .stripe { height: 70%; }
-  .tower-rows li .who .num, .tower-rows li .tk, .tower-rows li.mine .mine-tag { display: none; }
-  .tower-rows li .nm { font: 600 11.5px var(--font-data); letter-spacing: 0.03em; text-transform: uppercase; }
-  .tower-rows li .gap { height: auto; min-width: 0; padding: 0; border: 0; font-size: 10px; }
+  .tower-head, .tower-sec, .tower-prog { display: none; }
+  .tower-rows { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-half); height: auto !important; }
+  .tower-rows li {
+    position: relative !important; transform: none !important; height: auto; padding: 6px var(--s1) 4px; border-radius: var(--r-md);
+    grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; align-items: baseline; column-gap: var(--s-half); row-gap: 0;
+  }
+  .tower-rows li .stripe { position: absolute; left: 0; right: 0; top: 0; width: auto; height: 3px; border-radius: 0; }
+  .tower-rows li .pos { grid-area: 1 / 1; font-size: var(--fs-lg); line-height: 1; text-align: left; }
+  .tower-rows li .who { grid-area: 1 / 2; }
+  .tower-rows li .who .num, .tower-rows li .who .nm, .tower-rows li .mine-tag { display: none !important; }
+  .tower-rows li .tk { font: 700 var(--fs-sm) var(--font-data); letter-spacing: .06em; color: var(--text-1); }
+  .tower-rows li .rt { grid-area: 2 / 1 / 3 / 3; }
+  .tower-rows li .gap { height: auto; min-width: 0; padding: 0; border: 0; font-size: var(--fs-xs); line-height: 1.3; justify-content: flex-start; color: var(--text-2); }
+  .tower-rows li .gap.lead { font-size: var(--fs-xs); letter-spacing: .06em; }
+  .tower-rows li.mine .tk, .tower-rows li.mine .gap { color: var(--text-1); }
   .coursemap { display: none; }
 
-  /* The rail: a bottom sheet with the market while betting, gone once racing. */
-  .rail { left: 8px; right: 8px; bottom: 8px; top: auto; width: auto; max-height: 58vh; }
-  .rail .cam { display: none; }
-  .leftcol, .ring { display: none !important; }       /* the S6 sheet carries these on phones */
-  .rail { --mk-cols: minmax(0, 1fr) 60px 48px; }
-  .rail .market { padding: 12px; border-radius: var(--r-lg); }
-  .mk-head { padding-bottom: var(--s1); }
-  .mk-pool .amt b { font-size: var(--fs-xl); }
-  .mk-cols, .runners li .sh, .runners li .bk { display: none; }
-  .runners { gap: 4px; }
-  .runners li { padding: 0 var(--s1) 0 var(--s2); }
-  .runners li .stripe { height: 28px; }
-  .runners li .win { font-size: var(--fs-xl); }
-  .runners li .win.long { font-size: var(--fs-lg); }
-  .rail .market { flex: none; }
-  .slip { gap: var(--s1); padding-top: var(--s1); }
-  /* The status row only shows the stake label here, which the highlighted row already says; the 3-step bar and the
-     NOT PLACED notice still use it and grow it for their turn (the S6 sheet redoes this). */
-  .slip-row { height: auto; }
-  .slip-head { display: none; }
-  .runners li { height: var(--tap); }
-  .stakes button { height: var(--tap); font-size: var(--fs-lg); }
-  body.race-on .rail { display: none; }
-
-  .cambar { bottom: 12px; max-width: calc(100vw - 16px); overflow-x: auto; }
-  .cambar .camwhy { display: none; }
-  .cambar button { padding: 0 8px; }
-  .cambar .camcoins button { width: 34px; padding: 0; }
-  .cambar .camcoins .tok { width: 28px; height: 28px; }   /* S6 rebuilds this bar; 36px keeps it on one row for now */
-  /* Race control sits ABOVE the camera bar here: at the top it landed on the
-     tower overlay and hid the standings (Sanjay: UI covering the cards). */
-  .banner { top: auto; bottom: 76px; padding: 0 var(--s2); border-radius: var(--r-lg); }
+  /* Race control drops under the strip. */
+  .banner {
+    top: calc(var(--top-h) + var(--s2) + 56px + var(--s1)); bottom: auto; left: var(--s1); right: var(--s1); transform: none;
+    width: fit-content; max-width: calc(100vw - var(--s2)); margin-inline: auto; min-height: 44px; padding: 0 var(--s2);
+    animation-name: dropm;
+  }
+  @keyframes dropm { from { opacity: 0; transform: translateY(-12px); } }
   .banner::before { display: none; }
   .banner .bk, .banner .sep { font-size: var(--fs-lg); }
   .banner .msg { font-size: var(--fs-sm); }
-  /* Countdown on a phone: smaller lamps and number (S6 folds the sheet into the peek bar). */
+
+  /* Camera chips: a panel just above the peek bar, never inside it. Auto / Pack / Leader, then one chip per marble. */
+  .cambar {
+    left: var(--s1); right: var(--s1); bottom: calc(88px + var(--safe-b) + var(--s1)); transform: none; max-width: none; overflow: visible;
+    grid-template-columns: repeat(3, 1fr); gap: var(--s-half); padding: var(--s-half); border-radius: var(--r-lg);
+  }
+  body.race-on .cambar { display: grid; }
+  .cambar .camwhy { display: none; }
+  .cambar button { padding: 0; }
+  .cambar .camcoins { grid-column: 1 / -1; display: flex; justify-content: space-between; margin: 0; padding: 0 var(--s1); border-left: 0; }
+  .cambar .camcoins button { width: var(--tap); }
+  .cambar .camcoins .tok { width: 30px; height: 30px; }
+
+  /* The race peek bar: the sheet, locked at peek (88px + safe area), is the ONLY bottom band. */
+  body.race-on .rail > :not(.grab):not(.peekbar) { display: none; }
+  body.race-on .rail { overflow: visible; }
+  body.race-on .rail.mine { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--glass); border-top-color: var(--accent); box-shadow: 0 -16px 48px -20px var(--glow); }
+  body.race-on .peekbar { display: flex; flex-direction: column; justify-content: center; flex: none; margin-top: 0; min-height: 0; position: relative; }
+  .pk { display: flex; align-items: center; gap: var(--s2); height: var(--s7); cursor: pointer; }
+  .pk .tok { width: 40px; height: 40px; border-width: 3px; font-size: var(--fs-md); }
+  .pk-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s-half); }
+  .pk-t { display: flex; align-items: baseline; gap: var(--s1); white-space: nowrap; font: 600 var(--fs-md) var(--font-ui); }
+  .pk-t b { font: 700 var(--fs-lg) var(--font-data); font-variant-numeric: tabular-nums; }
+  .pk-s { font-size: var(--fs-xs); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .pk-pay { display: flex; flex-direction: column; align-items: flex-end; }
+  .pk-pay .lbl { font-size: var(--fs-xs); }
+  .pk-pay b { font: 700 var(--fs-2xl)/1 var(--font-data); font-variant-numeric: tabular-nums; color: var(--win); }
+  .pk-follow {
+    position: absolute; top: -28px; right: var(--s1); height: 24px; display: inline-flex; align-items: center; gap: var(--s-half); padding: 0 var(--s1);
+    border-radius: var(--r-pill); background: var(--accent); color: var(--accent-ink); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .12em; white-space: nowrap;
+  }
+  .pk-follow svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .pk.spec { cursor: default; }
+  .pk.spec .pk-txt { gap: var(--s-half); align-items: flex-start; }
+  .pk.spec .pk-s { font: 600 var(--fs-md) var(--font-ui); color: var(--text-1); }
+  .pk.spec .cta { width: auto; flex: none; min-height: var(--s6); height: var(--s6); padding: 0 var(--s3); font-size: var(--fs-lg); display: inline-flex; align-items: center; gap: var(--s1); }
+  .pk.spec .cta svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Countdown on a phone: the sheet collapses to the peek bar and carries the Riding chip. */
+  body.countdown .rail { visibility: visible; background: var(--surface-1); border-top-color: var(--line-strong); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  body.countdown .rail .peekbar { visibility: hidden; }
   .overlay.lights { background: radial-gradient(60% 50% at 50% 40%, transparent 40%, var(--scrim) 100%); }
-  .wires { gap: 120px; } .wires i { height: 48px; }
+  .wires { gap: 120px; } .wires i { height: 40px; }
   .gantry i { width: 40px; height: 40px; }
   .gantry { gap: var(--s2); padding: var(--s1) var(--s2); }
-  .overlay.lights .count { font-size: var(--fs-5xl); }
-  .ridingchip { bottom: var(--s3); max-width: calc(100vw - 16px); }
-  /* Results on a phone, until S6 builds the result sheet: one scrolling column under the top bar. */
-  .results { top: calc(var(--top-h) + 16px); inset-inline: 8px; bottom: 8px; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s1); pointer-events: auto; background: var(--scrim); border-radius: var(--r-lg); }
-  .results > *, .resleft, .resstack, .podiumcard, .proofbar, .paidpill { position: static; transform: none; width: auto; }
-  .results .paidpill { order: -3; justify-content: center; min-height: var(--tap); height: auto; padding: var(--s1) var(--s2); white-space: normal; font-size: var(--fs-sm); }
-  .resstack { order: -2; } .podiumcard { order: -1; padding: var(--s2); } .proofbar { order: 9; padding: 0 var(--s2) var(--s2); flex-wrap: wrap; }
-  .myres { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--surface-1); padding: var(--s2); }
-  .finalpanel { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--surface-1); }
+  /* The number sits below the gate, so the marbles stay in view; the top bar gets out of the lamps' way (frame 10). */
+  .overlay.lights .count { margin-top: 132px; font-size: var(--fs-6xl); }
+  body.countdown .topbar .clock { visibility: hidden; }
+  body.countdown .topbar .wallet { background: none; border-color: transparent; }
+  .overlay.lights p { bottom: calc(88px + var(--safe-b) + var(--s2)); }
+  .ridingchip { bottom: calc(var(--safe-b) + var(--s1) + 4px); max-width: calc(100vw - var(--s2)); }
+
+  /* ---------------- results: the bottom result sheet (brief section 7) ---------------- */
+  .results { background: none; }
+  .results .paidpill { top: calc(var(--top-h) + var(--s2)); height: 40px; padding: 0 var(--s2); font-size: var(--fs-sm); max-width: calc(100vw - var(--s2)); }
+  .resshell {
+    position: fixed; z-index: 13; left: 0; right: 0; bottom: 0; height: var(--sheet-h, 60dvh); display: flex; flex-direction: column; gap: var(--s1);
+    padding: 0 var(--s2); overflow: hidden; border-radius: var(--r-xl) var(--r-xl) 0 0; border: 1px solid var(--line); border-width: 1px 0 0 0;
+    background: color-mix(in srgb, var(--surface-1) 90%, transparent); box-shadow: 0 -16px 48px -24px var(--shadow);
+    backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+    transition: height .28s cubic-bezier(.2, .8, .2, 1);
+  }
+  .resshell.dragging { transition: none; }
+  .resshell:not([data-snap="peek"]) { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .resshell > .grab { order: 0; }
+  .kopull { order: 1; display: block; margin: 0; text-align: center; font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
+  .kopull[hidden] { display: none; }
+  .resshell[data-snap="full"] .kopull { display: none; }
+  .resleft, .resstack { display: contents; }
+  .podiumcard { display: none; }
+  .myres { order: 2; flex: none; padding: var(--s2); gap: var(--s1); border-radius: var(--r-lg); background: var(--surface-2); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .myres.win { background: linear-gradient(var(--celebrate-soft), var(--celebrate-soft)), var(--surface-2); }
+  .myres.watch { background: var(--surface-2); }
+  .mr-top .lbl { display: none; }
+  .mr-head { gap: var(--s1); }
+  .mr-head .tok.lg { width: 40px; height: 40px; }
+  .mr-head h3 { font-size: var(--fs-xl); }
   .mr-pay .big b { font-size: var(--fs-3xl); }
-  .nextcard { padding: var(--s2); }
+  .mr-stats { padding-top: var(--s1); gap: var(--s1); }
+  .mr-stats b { font-size: var(--fs-lg); }
+  .myres #resConnect { display: none; }
+  .myres.watch .mr-head h3 { font-size: var(--fs-lg); }
+  .podm { order: 3; flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s1); }
+  .podm .pt { padding: var(--s1); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--s-half); min-width: 0; }
+  .podm .pt.p1 { border-color: var(--line-strong); }
+  .podm .pt .r { display: flex; align-items: center; gap: var(--s1); white-space: nowrap; }
+  .podm .pt .r b { font: 700 var(--fs-md) var(--font-data); font-variant-numeric: tabular-nums; }
+  .podm .pt .r i { width: 12px; height: 12px; flex: none; border-radius: 50%; background: var(--c); }
+  .podm .pt .r span { font: 700 var(--fs-sm) var(--font-data); letter-spacing: .08em; }
+  .podm .pt .t { font: 600 var(--fs-sm) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
+  .podm .pt.none { grid-column: 1 / -1; text-align: center; color: var(--text-2); }
+  .finalpanel { order: 4; flex: none; padding: 0; gap: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .fo-head { padding: 0 var(--s1) var(--s-half); }
+  .final { gap: 0; }
+  .final li { height: 24px; grid-template-columns: 16px 3px minmax(0, 1fr) auto; padding: 0 var(--s1); border-radius: var(--r-sm); gap: var(--s1); }
+  .final li .pos { font-size: var(--fs-sm); }
+  .final li .stripe { width: 3px; height: 14px; }
+  .final li .who { gap: var(--s-half); }
+  .final li .nm { font-size: var(--fs-sm); }
+  .final li .ft { font-size: var(--fs-sm); font-weight: 700; }
+  .final li .oo { height: 18px; font-size: var(--fs-xs); }
+  .proofbar { order: 5; position: static; flex: none; flex-wrap: wrap; }
+  .proofbar .proofpill.sm { min-height: var(--tap); }
+  .koreplay { order: 6; flex: none; }
+  .nextcard {
+    order: 9; position: sticky; bottom: 0; z-index: 1; margin: auto calc(-1 * var(--s2)) 0; padding: var(--s1) var(--s2) calc(var(--s1) + var(--safe-b));
+    border-radius: 0; border: 0; border-top: 1px solid var(--line); background: var(--surface-1); gap: var(--s2); min-height: calc(72px + var(--safe-b));
+  }
+  .resstack.hero .nextcard { order: 9; border-top-color: var(--accent); box-shadow: none; }
+  .nring, .resstack.hero .nring { width: 48px; height: 48px; }
+  .nring b, .resstack.hero .nring b { font-size: var(--fs-xl); }
+  .ntxt strong, .resstack.hero .ntxt strong { font-size: var(--fs-md); }
+  /* The pinned bar: ring | label over note | (Start round, local only) or Connect for a spectator. */
+  .nextcard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ring lbl act" "ring note act"; align-items: center; column-gap: var(--s2); row-gap: 2px; }
+  .nring { grid-area: ring; }
+  .ntxt { display: contents; }
+  .ntxt .lbl { grid-area: lbl; align-self: end; }
+  .ntxt strong { grid-area: note; align-self: start; white-space: nowrap; }
+  .ntxt .ghost { grid-area: act; margin: 0; }
+  #nextConnect:not([hidden]) { grid-area: act; display: inline-flex; align-items: center; justify-content: center; width: auto; flex: none; height: var(--s7); padding: 0 var(--s2); font-size: var(--fs-md); }
+  .resshell[data-snap="peek"] > :not(.grab):not(.myres):not(.resstack):not(.nextcard) { display: none; }
   body.paid .topbar .clock { visibility: visible; }
 }
 
@@ -932,6 +1154,8 @@ body.paid .topbar .clock { visibility: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .rail, .resshell { transition: none; }
+  .betpeek .pulse { animation: none; }
   .live, .livedot i, .ring.now strong, .sealpill, .spin, .steps3 .bar i.ind, .slip .cta[data-k="ready"], .feed li:first-child { animation: none; }
   .steps3 .bar i.ind { width: 40%; }
 }

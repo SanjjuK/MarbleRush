@@ -134,6 +134,7 @@ function resetRoundUI() {
   buildCourseMap();
   lastOdds = [];
   $('roundTag').textContent = `Round ${betting.round}`;
+  $('ringRnd').textContent = `Round ${betting.round}`;
   document.body.classList.remove('racing', 'countdown', 'results', 'paid');
   $('ridingChip').hidden = true;
   // The panels must be laid out before the renderer measures around them.
@@ -258,6 +259,7 @@ function onNetSettled(d) {
  */
 function setRaceLayout(on) {
   document.body.classList.toggle('race-on', on);
+  syncSheets();
   requestAnimationFrame(() => renderer && renderer.resize());
 }
 
@@ -525,8 +527,9 @@ function drawSideCam() {
 /** Play the knockout clips on the result card, slow motion, round and round. */
 function drawReplay(dt) {
   const box = $('koReplay');
-  if (!clips.length || $('resultOverlay').hidden) { box.hidden = true; return; }
+  if (!clips.length || $('resultOverlay').hidden) { box.hidden = true; $('koPull').hidden = true; return; }
   box.hidden = false;
+  if ($('koPull').hidden) $('koPull').hidden = false;
   replayT += dt * 0.5;                                   // half speed
   const lens = clips.map(c => c.frames.length / 60 + 0.8);
   const total = lens.reduce((a, b) => a + b, 0);
@@ -697,6 +700,12 @@ function renderFeed() {
   if (!ul) return;
   const rows = betting.bots.slice(-4).reverse();
   $('feedCount').textContent = betting.bots.length ? `${betting.bots.length}` : '';
+  const lastBet = betting.bots[betting.bots.length - 1], pk = $('betPeek');
+  if (lastBet) {
+    const d = MARBLE_DATA[lastBet.marble];
+    pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="stripe" style="--c:${d.hex}"></span><b>${esc(lastBet.handle)}</b>` +
+      `<span class="what">${esc(d.name)} · ${fmtA(lastBet.amount)}</span>${lastBet.whale ? '<em class="whale">WHALE</em>' : ''}<span class="more">FEED ↑</span>`;
+  } else pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="what">No bets yet · Be the first</span><span class="more">FEED ↑</span>`;
   ul.innerHTML = rows.map(b => {
     const d = MARBLE_DATA[b.marble];
     return `<li class="${b.mine ? 'mine' : ''}" style="--c:${d.hex}"><span class="stripe"></span>` +
@@ -803,7 +812,8 @@ function renderTote() {
     if (locked) li.setAttribute('aria-disabled', 'true'); else li.tabIndex = 0;
     li.innerHTML =
       `<span class="who"><span class="stripe"></span><b class="n">${i + 1}</b>` +
-      `<span class="id"><span class="nm">${esc(d.name)}</span><span class="tk">${d.ticker}</span></span></span>` +
+      `<span class="id"><span class="nm">${esc(d.name)}</span><span class="tk">${d.ticker}</span>` +
+      `<span class="more">${on > 0 ? `2nd ${pl || '-'} · ${betting.backers[i]} ${betting.backers[i] === 1 ? 'backer' : 'backers'}` : 'No bets yet'}</span></span></span>` +
       `<span class="win ${odds ? move : 'none'}${odds && odds.length > 5 ? ' long' : ''}">${odds || '-'}` +
       `${move ? `<span class="arrow" aria-hidden="true">${move === 'up' ? '▲' : '▼'}</span>` : ''}</span>` +
       `<span class="pl">${pl || '-'}</span>` +
@@ -822,6 +832,8 @@ function renderTote() {
   renderFinalPool();
   $('rakePct').textContent = `${(RAKE * 100).toFixed(0)}%`;
   $('places').textContent = `${PLACE_SHARES.length} places paid · ${PLACE_SHARES.map(x => Math.round(x * 100)).join(' / ')}`;
+  const minB = betting.minBet ?? MIN_BET;
+  $('mkShort').textContent = `${PLACE_SHARES.map(x => Math.round(x * 100)).join('/')} · MIN ${Number.isInteger(minB) ? minB : fmtAmount(minB)}`;
   renderStakes();
   renderBetButton();
 }
@@ -832,6 +844,7 @@ function renderStakes() {
   const list = betting.stakes || STAKES;
   const lock = isLocked() || !!betting.guest;
   box.style.setProperty('--n', list.length);
+  $('slip').classList.toggle('stack', list.length > 4);
   box.classList.toggle('lock', lock);
   box.innerHTML = '';
   for (const v of list) {
@@ -867,6 +880,15 @@ function renderFair() {
   const open = sig ? () => window.open(explorer(sig, c.cluster), '_blank', 'noopener,noreferrer') : null;
   el.onclick = open;
   el.title = sig ? 'Open this round\'s transaction on the Solana explorer' : 'The race is fixed by this hash before betting opens; the seed is revealed when the gates open.';
+  // The phone's copy of the pill, under the betting ring (the top bar's shield steps aside there).
+  const mf = $('mFair');
+  $('mFairLabel').textContent = text;
+  $('mFairHash').textContent = $('commitment').textContent;
+  mf.classList.toggle('sealing', sealing);
+  mf.classList.toggle('link', !!sig);
+  mf.setAttribute('aria-disabled', sig ? 'false' : 'true');
+  mf.onclick = open;
+  mf.title = el.title;
 
   // The left column's proof card. The copy only claims Solana when Solana has the commitment.
   $('proofState').textContent = text;
@@ -942,7 +964,7 @@ function dockView() {
         : n === 2 ? `${wn === 'your wallet' ? ICON.wallet : `<span class="glyph" aria-hidden="true">${esc(wn[0])}</span>`}Approve in ${esc(wn)}`
         : `${ICON.spin}Confirming on Solana`,
       hint: n === 1 ? 'Building the token transfer'
-        : n === 2 ? `<span>Check the ${esc(wn)} window</span><span class="dot">·</span><button type="button" class="linkbtn" id="betCancel">Cancel</button>`
+        : n === 2 ? `<span>${wn === 'your wallet' ? 'Check your wallet' : `Check the ${esc(wn)} window`}</span><span class="dot">·</span><button type="button" class="linkbtn" id="betCancel">Cancel</button>`
         : 'Usually under 2 seconds' };
   }
   if (betting.placed) {                                                                                 // A06: final, nothing to press
@@ -962,7 +984,7 @@ function dockView() {
   if (sel < 0) return { ...v, k: 'idle', label: 'Pick a marble', hint: 'Tap a marble row to back it' };    // A01
   if (!betting.canAfford(betting.stake)) return { ...v, k: 'idle', label: 'Stake too high', hint: 'Choose a smaller stake' };
   const q = betting.quote(sel, betting.stake);                                                           // A02
-  return { ...v, k: 'ready', disabled: false, onclick: pressBet, label: `Bet ${fmtA(betting.stake)} → ${fmtAmount(q.payout)}`,
+  return { ...v, k: 'ready', disabled: false, onclick: pressBet, label: `<span class="bl"><span class="bt">Bet ${fmtA(betting.stake)}</span> <span class="bp">→ ${fmtAmount(q.payout)}</span></span>`,
     hint: 'One bet per round · locked once sent' };
 }
 
@@ -973,6 +995,7 @@ function renderBetButton() {
   dockLast = key;
   const btn = $('placeBet');
   btn.dataset.k = v.k;
+  $('slip').dataset.k = v.k;
   btn.disabled = !!v.disabled;
   btn.setAttribute('aria-busy', v.k === 'busy');
   btn.innerHTML = v.label;
@@ -1068,6 +1091,7 @@ function renderStandings() {
       li.classList.add(i < was ? 'gain' : 'loss');
     }
     li.style.transform = `translateY(${i * h}px)`;
+    li.style.order = i;
     li.querySelector('.pos').textContent = i + 1;
     li.classList.toggle('out', m.out);
     li.classList.toggle('p1', i === 0);
@@ -1105,6 +1129,25 @@ let myLast = '', myIdx = -1;
 /** Seconds a marble is behind the front of the race, the same figure the tower shows. */
 const behind = (m) => Math.max(0, engine.time - frontAt(m.progress));
 
+/** What my marble is doing and what it pays, for the My marble card (desktop) and the peek bar (phones) alike. */
+function myInfo(idx) {
+  const d = MARBLE_DATA[idx], order = engine.standings(), pos = order.findIndex(m => m.index === idx), m = engine.marbles[idx];
+  const pre = phase === PHASE.COUNTDOWN || phase === PHASE.BETTING || phase === PHASE.READY;
+  const stake = betting.stake;
+  const win = betting.oddsFor(idx, 0), pl = betting.oddsFor(idx, 1);
+  const pay = (o) => (m.out || o === null || o === undefined ? '-' : fmtAmount(o * stake, 2));
+  let title, detail = '';
+  if (m.out) { title = `${d.name} is out`; detail = 'Knocked out, so this bet cannot pay'; }
+  else if (pre) { title = `${d.name} on the grid`; detail = 'Race starts shortly'; }
+  else if (m.finished) { title = `${d.name} finished ${ORD[pos]}`; detail = `${m.finishTime.toFixed(2)}s`; }
+  else {
+    title = `${d.name} running ${ORD[pos]}`;
+    if (pos === 0) { const nx = order[1]; detail = nx && !nx.out ? `Leading, +${behind(nx).toFixed(2)} clear of ${MARBLE_DATA[nx.index].name}` : 'Leading'; }
+    else { const ah = order[pos - 1]; detail = `+${Math.max(0, behind(m) - (ah === order[0] ? 0 : behind(ah))).toFixed(2)} to ${MARBLE_DATA[ah.index].name}`; }
+  }
+  return { d, pos, m, pre, stake, win, pl, pay, title, detail, following: camMode === idx && !m.out };
+}
+
 /**
  * The My marble card: where my marble is, and what 1st and 2nd would pay on the CLOSED pool.
  * The figures are stake / pool on my marble * net pool * the place share: the nominal
@@ -1124,21 +1167,8 @@ function renderMyMarble() {
       `<p class="mc-sub">Round ${betting.round + 1} betting opens after this race.${guest ? ' Players never need SOL.' : ''}</p>` +
       (guest ? `<button type="button" class="cta" id="myConnect">Connect</button>` : '');
   } else {
-    const d = MARBLE_DATA[idx], order = engine.standings(), pos = order.findIndex(m => m.index === idx), m = engine.marbles[idx];
-    const pre = phase === PHASE.COUNTDOWN || phase === PHASE.BETTING || phase === PHASE.READY;
-    const stake = betting.stake;
-    const win = betting.oddsFor(idx, 0), pl = betting.oddsFor(idx, 1);
-    const pay = (o) => (m.out || o === null || o === undefined ? '-' : fmtAmount(o * stake, 2));
-    let title;
-    if (m.out) { title = `${d.name} is out`; detail = 'Knocked out, so this bet cannot pay'; }
-    else if (pre) { title = `${d.name} on the grid`; detail = 'Race starts shortly'; }
-    else if (m.finished) { title = `${d.name} finished ${ORD[pos]}`; detail = `${m.finishTime.toFixed(2)}s`; }
-    else {
-      title = `${d.name} running ${ORD[pos]}`;
-      if (pos === 0) { const nx = order[1]; detail = nx && !nx.out ? `Leading, +${behind(nx).toFixed(2)} clear of ${MARBLE_DATA[nx.index].name}` : 'Leading'; }
-      else { const ah = order[pos - 1]; detail = `+${Math.max(0, behind(m) - (ah === order[0] ? 0 : behind(ah))).toFixed(2)} to ${MARBLE_DATA[ah.index].name}`; }
-    }
-    const following = camMode === idx && !m.out;
+    const { d, pos, m, pre, stake, win, pl, pay, title, detail: det, following } = myInfo(idx);
+    detail = det;
     cls += m.out ? ' out' : ` mine${following ? ' following' : ''}`;
     html = `<div class="mc-top"><span class="lbl">My marble</span><span class="mc-id"><span class="tok" style="--c:${d.hex}">${idx + 1}</span><b>${String(idx + 1).padStart(2, '0')} ${d.ticker}</b></span></div>` +
       `<div class="mc-main"><span class="mc-pos">${m.out ? 'OUT' : pre ? '-' : 'P' + (pos + 1)}</span><div class="mc-txt"><span class="mc-title">${esc(title)}</span><span class="mc-detail"></span></div></div>` +
@@ -1168,6 +1198,47 @@ $('myMarble').onclick = (e) => {
   toggleFollow();
 };
 $('myMarble').onkeydown = (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); toggleFollow(); }
+};
+
+/**
+ * The phone's race peek bar (frames 7 and S2): the sheet, locked at peek, is this and nothing else at the bottom.
+ * My marble in one line with what 2nd pays, tap to follow it; for a spectator, Connect at the thumb.
+ */
+let peekLast = '';
+function renderPeek() {
+  const el = $('peekBar'), rail = $('rail');
+  if (!el || !phone.matches || !document.body.classList.contains('race-on')) return;
+  const guest = !!betting.guest;
+  const idx = !guest && betting.placed && betting.selected >= 0 ? betting.selected : -1;
+  rail.classList.toggle('mine', idx >= 0);
+  let html = '';
+  if (phase !== PHASE.RACING) html = '';
+  else if (idx < 0) {
+    html = `<div class="pk spec"><div class="pk-txt"><span class="tagbox">WATCHING</span>` +
+      `<span class="pk-s">${guest ? 'Connect to play next round' : 'You are not in this round'}</span></div>` +
+      (guest ? `<button type="button" class="cta" id="peekConnect">${ICON.wallet}Connect</button>` : '') + `</div>`;
+  } else {
+    const { d, pos, m, pre, stake, win, pl, pay, title, following } = myInfo(idx);
+    const sub = m.out ? 'Knocked out, so this bet cannot pay' : m.finished ? `Bet ${fmtA(stake)} · ${m.finishTime.toFixed(2)}s`
+      : `Bet ${fmtA(stake)} · 1st would pay ${pay(win)}`;
+    html = (following ? `<span class="pk-follow"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>FOLLOWING ${esc(d.name.toUpperCase())}</span>` : '') +
+      `<div class="pk"><span class="tok" style="--c:${d.hex}">${pad2(idx)}</span>` +
+      `<div class="pk-txt"><span class="pk-t"><b>${m.out ? 'OUT' : pre ? '-' : 'P' + (pos + 1)}</b>${esc(title)}</span><span class="pk-s">${esc(sub)}</span></div>` +
+      (m.out ? '' : `<div class="pk-pay"><span class="lbl">2nd pays</span><b>${pay(pl)}</b></div>`) + `</div>`;
+  }
+  const key = html + (idx >= 0 && !engine.marbles[idx].out ? '|f' : '');
+  if (key === peekLast) return;
+  peekLast = key;
+  el.innerHTML = html;
+  if (idx >= 0 && !engine.marbles[idx].out) { el.setAttribute('role', 'button'); el.tabIndex = 0; el.setAttribute('aria-pressed', camMode === idx); el.setAttribute('aria-label', `My marble, ${MARBLE_DATA[idx].name}. ${camMode === idx ? 'The camera is following it. Tap to release.' : 'Tap to follow it.'}`); }
+  else { el.removeAttribute('role'); el.removeAttribute('tabindex'); el.removeAttribute('aria-pressed'); el.removeAttribute('aria-label'); }
+}
+$('peekBar').onclick = (e) => {
+  if (e.target.closest('#peekConnect')) { openWallet(); return; }
+  toggleFollow();
+};
+$('peekBar').onkeydown = (e) => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); toggleFollow(); }
 };
 
@@ -1308,11 +1379,16 @@ function showResult() {
     ol.appendChild(li);
   });
 
+  // Phones: the podium is three tiles (P1 P2 P3 with times), not the desktop's winner card.
+  $('podiumM').innerHTML = voided ? '<div class="pt none">No result</div>' : top3.map((idx, k) =>
+    `<div class="pt p${k + 1}"><span class="r"><b>P${k + 1}</b><i style="--c:${MARBLE_DATA[idx].hex}"></i><span>${pad2(idx)} ${MARBLE_DATA[idx].ticker}</span></span><span class="t">${fmtTime(result.times[idx])}</span></div>`).join('');
+
   renderMyResult(si, { winIdx, rnd, mine, hasBet, ko });
   renderResultLinks();
 
   // Win: the full celebration. Place: a few particles. Everything else: nothing moves.
   $('resultOverlay').hidden = false;
+  if (phone.matches) resSheet.set('half');
   if (resultKind === 'win') { launchConfetti(160); renderer.setSpotlight(winIdx, cssVar('--celebrate-glow')); }
   else if (resultKind === 'place') launchConfetti(24);
   setRaceLayout(true);
@@ -1324,6 +1400,7 @@ function renderMyResult(si, { winIdx, rnd, mine, hasBet, ko }) {
   const name = mine >= 0 ? MARBLE_DATA[mine].name : '';
   el.className = `myres ${kind === 'loss' || kind === 'void' ? 'quiet ' : ''}${kind}`;
   $('resConnect').hidden = !(kind === 'watch' && betting.guest);
+  $('nextConnect').hidden = !betting.guest;               // phones: Connect sits in the pinned next-round bar
   $('resCur').textContent = cur();
   $('burst').innerHTML = '';
   $('resWho').textContent = kind === 'watch' ? `Round ${rnd}` : `My result · ${name} ${MARBLE_DATA[mine].ticker}`;
@@ -1427,6 +1504,158 @@ function renderResultLinks() {
     mineBtn.onclick = open;
   }
 }
+
+/* ----------------------------- bottom sheets ----------------------------- */
+
+// Phones only. The market rail and the result panel are bottom sheets with three snaps (peek, half, full) and a
+// drag handle. The renderer frames the course around a sheet, so it is re-framed once the sheet lands, not on
+// every frame of a drag (that would resize the canvas sixty times a second).
+const phone = window.matchMedia ? matchMedia('(max-width: 900px)') : { matches: false, addEventListener() {} };
+let sheetBusy = false, sheetTimer = 0;
+const safeProbe = document.createElement('div');
+safeProbe.setAttribute('aria-hidden', 'true');
+safeProbe.style.cssText = 'position:fixed;left:0;bottom:0;width:0;height:var(--safe-b);pointer-events:none;visibility:hidden';
+document.body.append(safeProbe);
+const safeBottom = () => safeProbe.offsetHeight;
+const SHEET_TOP = 72;                                     // a full sheet stops under the top bar
+const SNAPS = ['peek', 'half', 'full'];
+
+function reframeSoon() {
+  clearTimeout(sheetTimer);
+  sheetBusy = true;
+  sheetTimer = setTimeout(() => { sheetBusy = false; if (renderer) renderer.resize(); }, reducedMotion() ? 30 : 340);
+}
+
+/**
+ * `heights()` gives the sheet's three heights in px (safe area included). The sheet is `el`, dragged by `grab`.
+ * Returns { set(name), refresh(), lock(on), snap }.
+ */
+function makeSheet({ el, grab, heights, initial = 'half', onSnap }) {
+  let snap = initial, h = null, drag = null, moved = false, locked = false, key = '';
+  const px = (n) => `${Math.round(n)}px`;
+  const apply = () => {
+    el.dataset.snap = snap;
+    el.style.setProperty('--sheet-h', px(h[snap]));
+    if (snap !== 'full') el.scrollTop = 0;
+    if (onSnap) onSnap(snap);
+    reframeSoon();
+  };
+  const api = {
+    get snap() { return snap; },
+    get locked() { return locked; },
+    set(name) { h = heights(); snap = name; key = JSON.stringify(h); apply(); },
+    /** Re-measure; only moves the sheet when the numbers changed. */
+    refresh() {
+      if (drag) return;
+      const nh = heights(), k = JSON.stringify(nh);
+      if (k === key) return;
+      h = nh; key = k; apply();
+    },
+    lock(on, to) { locked = on; el.classList.toggle('locked', on); if (to) api.set(to); },
+  };
+  grab.addEventListener('pointerdown', (e) => {
+    if (locked || (e.button && e.button > 0)) return;
+    h = heights();
+    drag = { y0: e.clientY, h0: el.getBoundingClientRect().height, y: e.clientY, t: e.timeStamp, v: 0 };
+    moved = false;
+    try { grab.setPointerCapture(e.pointerId); } catch (_) { /* a synthetic pointer has nothing to capture */ }
+    el.classList.add('dragging');
+    sheetBusy = true;
+  });
+  grab.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y0;
+    if (Math.abs(dy) > 4) moved = true;
+    const dt = Math.max(1, e.timeStamp - drag.t);
+    drag.v = (drag.y - e.clientY) / dt;                    // px per ms, up is positive
+    drag.y = e.clientY; drag.t = e.timeStamp;
+    el.style.setProperty('--sheet-h', px(Math.max(h.peek, Math.min(h.full, drag.h0 - dy))));
+  });
+  const end = (e) => {
+    if (!drag) return;
+    const cur = el.getBoundingClientRect().height, v = drag.v;
+    drag = null;
+    el.classList.remove('dragging');
+    setTimeout(() => { moved = false; }, 60);                 // a drag is not a tap, whether or not the browser sends a click after it
+    if (!moved) { sheetBusy = false; return; }                // a tap: the click handler below decides
+    const aim = cur + v * 180;                                // a flick carries the sheet on
+    snap = SNAPS.reduce((best, n) => (Math.abs(h[n] - aim) < Math.abs(h[best] - aim) ? n : best), 'half');
+    apply();
+  };
+  grab.addEventListener('pointerup', end);
+  grab.addEventListener('pointercancel', end);
+  grab.addEventListener('click', () => {
+    if (moved) { moved = false; return; }
+    if (locked) return;
+    api.set(snap === 'half' ? 'full' : 'half');
+  });
+  grab.addEventListener('keydown', (e) => {
+    if (locked || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const i = SNAPS.indexOf(snap) + (e.key === 'ArrowUp' ? 1 : -1);
+    api.set(SNAPS[Math.max(0, Math.min(2, i))]);
+  });
+  return api;
+}
+
+const railSheet = makeSheet({
+  el: $('rail'), grab: $('sheetGrab'),
+  heights() {
+    const safe = safeBottom(), tote = $('tote'), slip = $('slip');
+    // Half is exactly the market and the dock: the rows end, 8px, the dock. A short screen caps it and the rows scroll.
+    const half = tote.offsetTop + tote.offsetHeight + 8 + slip.offsetHeight;
+    return { peek: 88 + safe, half: Math.min(Math.max(half, 88 + safe), Math.round(innerHeight * 0.72)), full: innerHeight - SHEET_TOP };
+  },
+  onSnap(s) { document.body.classList.toggle('sheet-full', s === 'full'); },
+});
+const resSheet = makeSheet({
+  el: $('resSheet'), grab: $('resGrab'),
+  heights() {
+    const safe = safeBottom();
+    return { peek: 72 + 16 + 72 + safe, half: Math.round(innerHeight * 0.64), full: innerHeight - SHEET_TOP };
+  },
+});
+
+/** Betting: the market sheet opens at half. From the countdown on it is the race peek bar and cannot be moved. */
+function syncSheets() {
+  if (!phone.matches) return;
+  const race = document.body.classList.contains('race-on');
+  if (race && !railSheet.locked) railSheet.lock(true, 'peek');
+  else if (!race && (railSheet.locked || !$('rail').dataset.snap)) { railSheet.lock(false); railSheet.set('half'); }
+  else if (!race) railSheet.refresh();
+}
+phone.addEventListener && phone.addEventListener('change', () => { syncSheets(); if (!$('resultOverlay').hidden) resSheet.set('half'); if (NET) renderAccount(); });
+// The latest-bet line opens the rest of the sheet.
+$('betPeek').onclick = () => { if (!railSheet.locked) railSheet.set('full'); };
+$('walletRow').onclick = () => openWallet();
+if ('ResizeObserver' in window) {
+  const rows = new ResizeObserver(() => { if (phone.matches && !document.body.classList.contains('race-on')) railSheet.refresh(); });
+  rows.observe($('tote')); rows.observe($('slip'));
+}
+window.addEventListener('resize', () => { if (phone.matches) { if (!$('resultOverlay').hidden) resSheet.refresh(); syncSheets(); } });
+
+/* ------------------------------- wake lock ------------------------------- */
+
+// Keep the screen on from the lights to the flag: a race is minutes of watching, not touching. Feature-detected;
+// the browser drops the lock when the tab is hidden, so it is taken again when the tab comes back.
+let wakeLock = null;
+async function syncWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  const b = document.body.classList, want = (b.contains('countdown') || b.contains('racing')) && !document.hidden;
+  try {
+    if (want && !wakeLock) {
+      const lock = await navigator.wakeLock.request('screen');
+      wakeLock = lock;
+      lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+      if (!(b.contains('countdown') || b.contains('racing'))) syncWakeLock();   // the race ended while the request was out
+    } else if (!want && wakeLock) {
+      const lock = wakeLock; wakeLock = null;
+      await lock.release();
+    }
+  } catch (_) { /* refused (battery saver, permission): the screen may dim, nothing else changes */ }
+}
+new MutationObserver(syncWakeLock).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+document.addEventListener('visibilitychange', syncWakeLock);
 
 /* ------------------------------ the loop ------------------------------- */
 
@@ -1536,6 +1765,7 @@ function frame(now) {
   renderStandings();
   renderCourseMap();
   renderMyMarble();
+  renderPeek();
   renderer.update(dt, phase);
   renderer.draw(phase);
 
@@ -1562,11 +1792,12 @@ window.addEventListener('resize', () => renderer && renderer.resize());
 // then grows to full height and, on a phone-sized screen, the start gate and
 // the whole field were being drawn behind it for the entire betting phase.
 if ('ResizeObserver' in window) {
-  const ro = new ResizeObserver(() => renderer && renderer.resize());
+  const ro = new ResizeObserver(() => { if (!sheetBusy && renderer) renderer.resize(); });
   for (const el of document.querySelectorAll('[data-hud]')) ro.observe(el);
 }
 $('nextRace').onclick = newRound;
 $('resConnect').onclick = () => openWallet();
+$('nextConnect').onclick = () => openWallet();
 
 /* ------------------------------ the wallet ------------------------------ */
 
@@ -1618,11 +1849,13 @@ function renderAccount() {
   b.hidden = false;
   b.classList.toggle('out', guest);
   b.innerHTML = guest
-    ? '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M16 12.5h2M3 9h13a2 2 0 0 0 2-2V5"/></svg><span class="on">Connect</span><span class="off">Not connected</span>'
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M16 12.5h2M3 9h13a2 2 0 0 0 2-2V5"/></svg><span class="on">Connect</span><span class="off">Not connected</span><span class="watch">Watching</span>'
     : '<span class="av"><i></i></span><span class="addr"></span>';
   if (guest) b.setAttribute('aria-label', 'Connect wallet');
   else b.querySelector('.addr').textContent = shortAddr(betting.address);
   b.onclick = openWallet;
+  b.tabIndex = phone.matches ? -1 : 0;                    // display-only on a phone: Connect is on the Bet button and the spectator bar
+  $('walletRowTxt').textContent = guest ? 'Connect wallet' : shortAddr(betting.address);
   renderWallet();
   if (phase === PHASE.BETTING) renderBetButton();
 }
