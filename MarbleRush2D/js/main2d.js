@@ -27,6 +27,16 @@ import { walletProviders, signIn, signOut, WALLET_LINKS } from './wallet2d.js';
 
 const $ = (id) => document.getElementById(id);
 
+// The marble colours in the HUD come from MARBLE_DATA, the same source the
+// canvas draws from, so a row and its marble always match. They replace the
+// design's approximate --m-* values in tokens.css (design/HANDOFF.md section 2).
+// The token names are the tickers: --m-blz, --m-frs, --m-vnm, --m-roy, --m-bul.
+MARBLE_DATA.forEach((d, i) => {
+  const root = document.documentElement.style;
+  root.setProperty(`--m-${d.ticker.toLowerCase()}`, d.hex);
+  root.setProperty(`--m-${d.ticker.toLowerCase()}-dark`, MARBLE_DARK[i]);
+});
+
 /** A racer's coin icon for the HUD, matching the coins on the course. */
 const coin = (i) =>
   `<span class="coin" style="--c:${MARBLE_DATA[i].hex};--d:${MARBLE_DARK[i]}"></span>`;
