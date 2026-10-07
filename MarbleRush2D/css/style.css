@@ -45,7 +45,7 @@
      backdrop-filter panels may be on screen (topbar, tower, market). */
   --panel: color-mix(in srgb, var(--surface-1) 94%, transparent);
   --rail-w: 340px;
-  --tower-w: 248px;
+  --tower-w: 320px;
   --top-h: 64px;
   color-scheme: dark;
 }
@@ -180,59 +180,96 @@ body.net.guest .wallet { display: none; }
 
 .tower {
   position: fixed; z-index: 9; left: 12px; top: calc(var(--top-h) + 24px); width: var(--tower-w);
-  border-radius: var(--radius); padding: 12px 10px 12px;
-  display: flex; flex-direction: column;
+  border-radius: var(--r-lg); padding: var(--s2);
+  display: flex; flex-direction: column; gap: var(--s1);
 }
-.tower-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 6px 8px; }
-.tower-title { font: 600 var(--fs-sm) var(--data); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.tower-head { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--s-half); }
+.tower-title { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.tower-state { font: 700 var(--fs-sm) var(--font-data); letter-spacing: .2em; color: var(--accent); }
+.tower-sec { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); padding: 0 var(--s-half); }
+.tower-sec .lbl { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
 .sector {
-  font: 600 var(--fs-sm) var(--data); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-1);
-  max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 700 var(--fs-lg) var(--font-data); letter-spacing: .06em; text-transform: uppercase; color: var(--text-1);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.tower-prog { display: flex; align-items: center; gap: var(--s1); padding: 0 var(--s-half) var(--s-half); }
+.tower-prog .bar { flex: 1; height: 4px; border-radius: var(--r-hair); background: var(--line-strong); overflow: hidden; display: block; }
+.tower-prog .bar i { display: block; height: 100%; width: 0; background: var(--text-1); }
+.tower-prog .pct { font: 600 var(--fs-sm) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); min-width: 32px; text-align: right; }
 /* Rows are placed by transform, so a change of places SLIDES, like the tower on TV. */
-.tower-rows { list-style: none; margin: 0; padding: 0; position: relative; }
+.tower-rows { --row-gap: 4px; list-style: none; margin: 0; padding: 0; position: relative; }
 .tower-rows li {
-  position: absolute; left: 0; right: 0; top: 0; display: grid; grid-template-columns: 28px 4px 20px 1fr auto; align-items: center; gap: 8px;
-  height: 34px; padding-right: 10px; border-radius: 8px; overflow: hidden;
-  background: var(--surface-2);
-  transition: transform .35s cubic-bezier(.2,.8,.2,1), background .3s;
+  position: absolute; left: 0; right: 0; top: 0; height: 56px; display: grid; grid-template-columns: 24px 4px minmax(0, 1fr) auto; align-items: center; gap: var(--s1);
+  padding: 0 var(--s2); border-radius: var(--r-md); overflow: hidden;
+  background: var(--surface-2); border: 1px solid transparent;
+  transition: transform .35s cubic-bezier(.2,.8,.2,1), background .3s, border-color .3s;
 }
-.tower-rows li .pos {
-  height: 100%; display: grid; place-items: center;
-  font: 700 var(--fs-lg) var(--data); background: var(--surface-3); color: var(--text-1);
+.tower-rows li.mine { background: var(--surface-accent); border-color: var(--accent); }
+.tower-rows li .pos { font: 700 var(--fs-xl) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
+.tower-rows li.p1 .pos, .tower-rows li.mine .pos { color: var(--text-1); }
+.tower-rows li.p1 .pos { color: var(--accent); }
+.tower-rows li .stripe { width: 4px; height: 32px; border-radius: var(--r-hair); background: var(--c); }
+.tower-rows li .who { display: flex; align-items: baseline; gap: var(--s1); min-width: 0; white-space: nowrap; }
+.tower-rows li .who .num { font: 600 var(--fs-sm) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
+.tower-rows li .nm { font: 600 var(--fs-md) var(--font-ui); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
+.tower-rows li .tk { font: 600 var(--fs-xs) var(--font-data); font-style: normal; letter-spacing: .14em; color: var(--text-2); }
+.tower-rows li .rt { display: flex; align-items: center; gap: var(--s1); }
+.tower-rows li .mine-tag {
+  display: none; height: 20px; align-items: center; padding: 0 var(--s1); border-radius: var(--r-sm); background: var(--accent); color: var(--accent-ink);
+  font: 700 var(--fs-xs) var(--font-data); font-style: normal; letter-spacing: .12em;
 }
-.tower-rows li.p1 .pos { background: var(--accent); color: var(--accent-ink); }
-.tower-rows li .stripe { width: 4px; height: 70%; border-radius: var(--r-hair); background: var(--c); }
-.tower-rows li .nm { font: 600 var(--fs-lg) var(--data); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; }
-.tower-rows li .gap { font: 600 var(--fs-md) var(--data); font-variant-numeric: tabular-nums; color: var(--text-1); text-align: right; }
-.tower-rows li .gap.lead { color: var(--text-2); font-family: var(--data); font-weight: 600; font-size: var(--fs-sm); letter-spacing: 0.1em; }
-.tower-rows li .flag {
-  font: 700 var(--fs-xs) var(--data); letter-spacing: 0.1em; padding: 2px 6px; border-radius: var(--r-xs);
+.tower-rows li.mine .mine-tag { display: inline-flex; }
+.tower-rows li .gap {
+  min-width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--s1); border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong); font: 700 var(--fs-lg) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-1); white-space: nowrap;
 }
-.tower-rows li .flag.out { background: var(--bad); color: #fff; }
-.tower-rows li .flag.ice { background: var(--ice); color: #06202c; }
-.tower-rows li .flag.warp { background: #c7b8ff; color: #1b1240; }
-.tower-rows li .flag.fin { background: var(--text-1); color: var(--bg); }
-.tower-rows li.out { opacity: 0.45; }
+.tower-rows li .gap:empty { display: none; }
+.tower-rows li .gap.lead { border-color: transparent; color: var(--text-2); font-weight: 600; font-size: var(--fs-sm); letter-spacing: .1em; }
+.tower-rows li .flag { font: 700 var(--fs-xs) var(--font-data); font-style: normal; letter-spacing: .1em; }
+.tower-rows li .flag.out { color: var(--text-2); }
+.tower-rows li .flag.ice { color: var(--ice); }
+.tower-rows li .flag.warp { color: #c7b8ff; }
+.tower-rows li .flag.fin { color: var(--text-1); }
+.tower-rows li.out { opacity: 0.6; }
+.tower-rows li.out .gap { border-color: var(--text-2); }
 .tower-rows li.out .nm { text-decoration: line-through; }
 .tower-rows li.gain { animation: gain .9s ease-out; }
 .tower-rows li.loss { animation: loss .9s ease-out; }
 @keyframes gain { 0% { background: rgba(67,201,139,0.45); } 100% { } }
 @keyframes loss { 0% { background: rgba(224,86,77,0.35); } 100% { } }
 
-.coursemap { position: relative; height: 26px; margin: 12px 6px 0; }
-.cm-track { position: absolute; left: 0; right: 0; top: 11px; height: 4px; border-radius: 4px;
-            background: linear-gradient(90deg, var(--line), var(--line-strong)); }
-.cm-track::after { content: ""; position: absolute; right: -2px; top: -5px; width: 4px; height: 14px; border-radius: 1px;
-                   background: repeating-linear-gradient(var(--text-1) 0 3px, var(--bg) 3px 6px); }
-.cm-marks i { position: absolute; top: 8px; width: 3px; height: 10px; border-radius: 2px; transform: translateX(-50%); }
-.cm-marks i.ko   { background: var(--bad); box-shadow: 0 0 6px rgba(224,86,77,0.8); }
-.cm-marks i.warp { background: #e6f7ff; box-shadow: 0 0 6px rgba(191,232,255,0.8); }
-.cm-marks i.grey { background: #9aa3b5; }
-.cm-marks i.gate { background: var(--accent); }
-.cm-marks i.pool { background: var(--celebrate); height: 14px; top: 6px; }
-.cm-dots span { position: absolute; top: 5px; width: 16px; height: 16px; margin-left: -8px; transition: left .25s linear; }
-.cm-dots span.out { opacity: .3; filter: grayscale(1); }
+/* Course progress: a thin rail on the course column's left wall. JS places it (layoutRail) from
+   renderer.courseRect(). Named events, passed ones filled; the field's marbles ride it as numbered chips. */
+.coursemap { position: fixed; z-index: 8; width: 0; pointer-events: none; }
+.cm-track { position: absolute; left: -1.5px; top: 0; bottom: 0; width: 3px; border-radius: var(--r-hair); background: var(--line-strong); }
+.cm-track i { position: absolute; left: 0; top: 0; width: 100%; height: 0; background: var(--text-1); border-radius: var(--r-hair); }
+.cm-marks .mk { position: absolute; left: 0; height: 0; }
+.cm-marks .mk i {
+  position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; box-sizing: border-box; transform: rotate(45deg);
+  background: var(--bg); border: 2px solid var(--text-3);
+}
+.cm-marks .mk:not(.lb) i { left: -3px; top: -3px; width: 6px; height: 6px; border-width: 1px; }
+.cm-marks .mk.passed i { background: var(--text-1); border-color: var(--text-1); }
+.cm-marks .mk b {
+  position: absolute; left: 14px; top: -10px; height: 20px; display: flex; align-items: center; padding: 0 var(--s1); border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent); font: 600 var(--fs-xs) var(--font-data); letter-spacing: .12em; color: var(--text-2); white-space: nowrap;
+  transition: opacity .2s;
+}
+.cm-marks .mk.passed b { color: var(--text-1); }
+.cm-marks .mk.under b { opacity: 0; }
+.cm-dots .chip {
+  position: absolute; left: 10px; height: 30px; display: flex; align-items: center; gap: var(--s-half); padding: 0 var(--s1); border-radius: var(--r-pill);
+  background: var(--surface-2); border: 1px solid var(--line-strong); white-space: nowrap;
+}
+.cm-dots .chip::before { content: ''; position: absolute; left: -10px; top: 50%; width: 10px; height: 1px; background: var(--text-2); }
+.cm-dots .pc { font: 700 var(--fs-xs) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-1); padding-right: var(--s-half); }
+.cm-dots .dt, .tok {
+  width: 20px; height: 20px; flex: none; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--c); background: var(--bg);
+  display: inline-flex; align-items: center; justify-content: center; font: 700 var(--fs-xs) var(--font-data); color: var(--text-1);
+}
+.cm-dots .dt.mine { box-shadow: 0 0 0 2px var(--accent); }
+.cm-dots .dt.out { border-style: dashed; color: var(--text-2); }
+.cm-dots .oo { font: 700 var(--fs-xs) var(--font-data); letter-spacing: .1em; color: var(--text-2); }
 
 /* A racer's marble, anywhere in the HUD: a glass sphere in its colour (the
    course's own, from MARBLE_DATA), a soft highlight, an inner shade, NO rim. */
@@ -257,9 +294,21 @@ body.net.guest .wallet { display: none; }
 .card-head .muted { font: 400 var(--fs-xs) var(--font-ui); letter-spacing: 0; text-transform: none; color: var(--text-3); }
 .card-head strong { color: var(--text); font-family: var(--data); letter-spacing: 0; }
 
-.cam canvas { display: block; width: 100%; height: 124px; border-radius: var(--r-sm); background: var(--ground); }
+.cam { padding: var(--s1); }
+.cam .card-head { margin: 0 0 var(--s1); padding-left: var(--s2); align-items: center; justify-content: flex-start; gap: var(--s1); }
+.cam .card-head .lbl { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.cam .card-head .who { flex: 1; min-width: 0; font: 600 var(--fs-sm) var(--font-ui); letter-spacing: 0; text-transform: none; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collapse {
+  width: var(--tap); height: var(--tap); flex: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--line-strong); background: transparent; cursor: pointer;
+}
+.collapse svg { fill: none; stroke: var(--text-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s; }
+.cam.collapsed .collapse svg { transform: rotate(180deg); }
+.cam.collapsed canvas { display: none; }
+.cam.collapsed .card-head { margin-bottom: 0; }
+.cam canvas { display: block; width: 100%; height: 140px; border-radius: var(--r-md); background: var(--ground); }
 .cam.live { border-color: var(--line-strong); }
-.cam.live .card-head span:last-child { color: var(--bad); font-weight: 800; }
+.cam.live .card-head .who { color: var(--bad); font-weight: 800; }
 
 /* The market: each runner is a row with its odds as a sportsbook button. */
 .runners { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -347,54 +396,110 @@ body.net.guest .wallet { display: none; }
 .record dd.good { color: var(--good); }
 .record dd.bad { color: var(--bad); }
 
-/* During the race the rail keeps the cam and a compact market; the rest
-   folds away so the course and the tower have the stage. */
-body.race-on .rail .slip, body.race-on .rail .lobby { display: none; }
-body.race-on .runners li { padding: 6px 8px 6px 10px; }
-body.race-on .runners li .nm .sub { display: none; }
+/* During the race the right stack is: My marble, the side cam, the closed pool. The market, the slip,
+   live bets and the form guide fold away so the course and the tower have the stage. */
+.finalpool { display: none; padding: var(--s2) var(--s3); flex-direction: column; gap: var(--s1); }
+body.race-on .finalpool { display: flex; }
+body.race-on .rail > .card:not(.cam):not(.finalpool) { display: none; }
+.fp-head { display: flex; align-items: baseline; justify-content: space-between; }
+.fp-head .lbl { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.fp-head .amt b { font: 700 var(--fs-xl) var(--font-data); font-variant-numeric: tabular-nums; }
+.fp-head .amt small { font: 600 var(--fs-sm) var(--font-data); color: var(--text-2); }
+.fp-note { font-size: var(--fs-xs); color: var(--text-2); }
+.fp-cols, .fp-rows li { display: grid; grid-template-columns: minmax(0, 1fr) 56px 48px; gap: var(--s1); align-items: center; }
+.fp-cols { padding-top: var(--s-half); font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.fp-cols span:not(:first-child) { text-align: right; }
+.fp-rows { list-style: none; margin: 0; padding: 0; }
+.fp-rows li { height: 26px; border-top: 1px solid var(--line); }
+.fp-rows .l { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.fp-rows .stripe { width: 3px; height: 14px; border-radius: var(--r-hair); background: var(--c); }
+.fp-rows .num { font: 600 var(--fs-sm) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
+.fp-rows .tk { font: 700 var(--fs-sm) var(--font-data); letter-spacing: .1em; }
+.fp-rows em { font: 700 var(--fs-xs) var(--font-data); font-style: normal; letter-spacing: .12em; }
+.fp-rows em.mine { color: var(--accent); }
+.fp-rows em.o { color: var(--text-2); }
+.fp-rows .w, .fp-rows .p { text-align: right; font: 600 var(--fs-md) var(--font-data); font-variant-numeric: tabular-nums; }
+.fp-rows .p { color: var(--text-2); }
+
+/* My marble: the one card that is about ME. The third blurred panel (top bar, tower, this). */
+.mycard {
+  display: none; flex-direction: column; gap: var(--s2); padding: var(--s3); border-radius: var(--r-lg); flex: none;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--glass); border: 1px solid var(--accent);
+  box-shadow: 0 16px 48px -20px var(--glow);
+  backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+}
+body.race-on .mycard:not([hidden]) { display: flex; }
+.mycard.watch { background: var(--glass); border-color: var(--line); box-shadow: none; }
+.mycard.mine { cursor: pointer; }
+.mycard.out { border-color: var(--line-strong); box-shadow: none; background: var(--glass); }
+.mycard.out .mc-pos { color: var(--text-2); }
+.mycard.following { box-shadow: 0 0 0 2px var(--accent), 0 16px 48px -20px var(--glow); }
+.mycard .lbl { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
+.mc-top { display: flex; align-items: center; justify-content: space-between; }
+.mc-id { display: flex; align-items: center; gap: var(--s1); }
+.mc-id .tok { width: 24px; height: 24px; }
+.mc-id b { font: 700 var(--fs-sm) var(--font-data); letter-spacing: .14em; color: var(--text-2); }
+.mc-main { display: flex; align-items: center; gap: var(--s2); }
+.mc-pos { font: 700 var(--fs-4xl)/.85 var(--font-data); font-variant-numeric: tabular-nums; }
+.mc-txt { display: flex; flex-direction: column; gap: var(--s-half); min-width: 0; }
+.mc-title { font: 600 var(--fs-xl)/1.2 var(--font-ui); letter-spacing: -.01em; margin: 0; text-wrap: pretty; }
+.mc-detail { font: 600 var(--fs-md) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
+.mc-rule { height: 1px; background: var(--line-strong); }
+.mc-pay { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: var(--s2); }
+.mc-pay > div { display: flex; flex-direction: column; gap: var(--s-half); }
+.mc-pay b { font: 600 var(--fs-xl) var(--font-data); font-variant-numeric: tabular-nums; }
+.mc-bet { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.mc-follow { font-size: var(--fs-xs); color: var(--text-3); }
+.mc-follow b { color: var(--accent); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .12em; }
+.mycard.watch .mc-title { font-size: var(--fs-xl); }
+.mc-sub { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.tagbox { height: 24px; display: inline-flex; align-items: center; padding: 0 var(--s1); border-radius: var(--r-sm); border: 1px solid var(--text-2); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .08em; color: var(--text-1); }
 
 /* ============================== camera bar ============================== */
 
 .cambar {
-  position: fixed; z-index: 11; left: 50%; bottom: 16px; transform: translateX(-50%);
-  display: none; align-items: center; gap: 4px; padding: 5px; border-radius: 999px; font-size: 12px;
+  position: fixed; z-index: 11; left: 50%; bottom: var(--s3); transform: translateX(-50%);
+  display: none; align-items: center; gap: var(--s-half); padding: var(--s1); border-radius: var(--r-pill);
+  background: var(--surface-1); border: 1px solid var(--line);     /* solid: the blurred panels are the top bar, tower and My marble */
 }
 body.race-on .cambar { display: flex; }
 .cambar button {
-  border: 0; background: transparent; color: var(--text-2); font: 500 var(--fs-sm) var(--font-ui);
-  min-height: var(--tap); padding: 0 var(--s2); border-radius: var(--r-pill); cursor: pointer; transition: all .15s;
+  border: 1px solid transparent; background: transparent; color: var(--text-1); font: 600 var(--fs-sm) var(--font-ui);
+  min-height: var(--tap); padding: 0 var(--s2); border-radius: var(--r-pill); cursor: pointer; transition: background .15s, border-color .15s;
 }
-.cambar button:hover { color: var(--text); }
-.cambar button.on { background: var(--surface-3); color: var(--text-1); }
-.cambar .camcoins { display: flex; gap: 1px; padding-left: 4px; border-left: 1px solid var(--stroke); margin-left: 2px; }
-.cambar .camcoins button { padding: 0 var(--s1); }
-.cambar .camcoins button.on { box-shadow: 0 0 0 2px var(--text-1) inset; background: transparent; }
-.cambar .camwhy { color: var(--text-2); font: 600 var(--fs-sm) var(--data); letter-spacing: 0.1em; text-transform: uppercase; padding: 0 10px 0 12px; white-space: nowrap; }
+.cambar button:hover { background: var(--surface-2); }
+.cambar button.on { background: var(--surface-accent); border-color: var(--accent); }
+.cambar .camcoins { display: flex; align-items: center; gap: 0; padding-left: var(--s-half); margin-left: var(--s-half); border-left: 1px solid var(--line-strong); }
+.cambar .camcoins button { width: var(--tap); padding: 0; display: inline-flex; align-items: center; justify-content: center; border-color: transparent; background: transparent; }
+.cambar .camcoins .tok { width: 30px; height: 30px; border-width: 3px; font-size: var(--fs-sm); }
+.cambar .camcoins button.on .tok { box-shadow: 0 0 0 2px var(--accent); }
+.cambar .camcoins button.out { cursor: default; }
+.cambar .camcoins button.out .tok { border-style: dashed; color: var(--text-2); }
+.cambar .camwhy { color: var(--text-2); font: 600 var(--fs-sm) var(--font-data); letter-spacing: 0.1em; text-transform: uppercase; padding: 0 var(--s1) 0 var(--s2); white-space: nowrap; }
 .cambar .camwhy:empty { display: none; }
 
 /* ===================== race control (the banner) ===================== */
 
 .banner {
-  position: fixed; z-index: 12; left: 50%; top: calc(var(--top-h) + 26px); transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px; max-width: min(520px, calc(100vw - 32px));
-  padding: 0 16px 0 0; border-radius: var(--r-sm); overflow: hidden; pointer-events: none;
+  position: fixed; z-index: 12; left: 50%; top: calc(var(--top-h) + 24px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--s1); max-width: min(720px, calc(100vw - 32px)); min-height: 48px;
+  padding: 0 var(--s3); border-radius: var(--r-pill); border: 0; pointer-events: none;
+  background: var(--text-1); color: var(--bg); box-shadow: 0 16px 40px -12px var(--shadow);
   animation: drop .4s cubic-bezier(.2,.9,.3,1.25);
 }
 .banner::before {
-  content: 'RACE CONTROL'; align-self: stretch; display: grid; place-items: center; padding: 0 12px;
-  font: 700 var(--fs-sm) var(--data); letter-spacing: 0.14em; background: var(--accent); color: var(--accent-ink);
+  content: 'RACE CONTROL'; padding-right: var(--s1); margin-right: var(--s-half); border-right: 1px solid var(--text-3); align-self: center; line-height: 20px;
+  font: 700 var(--fs-xs) var(--font-data); letter-spacing: .16em; color: var(--page); white-space: nowrap;
 }
-.banner.out::before { content: 'KNOCKOUT'; background: var(--bad); color: #fff; }
-.banner.warp::before { content: 'WARP'; background: #c7b8ff; color: #1b1240; }
-.banner.back::before { content: 'INCIDENT'; background: #ff9f1a; }
-.banner.bridge::before { content: 'BRIDGE'; background: #a5b4fc; color: #1b1240; }
-.banner.stake::before { content: 'STAKED'; background: #f7b733; color: #2a1a00; }
-.banner.launch::before { content: 'LAUNCH'; background: #ffd166; color: #2a1a00; }
-.banner .coin { width: 20px; height: 20px; margin-left: 2px; }
-.banner .msg { padding: 11px 0; font: 500 var(--fs-md) var(--font-ui); }
-.banner .msg b.up { color: var(--good); }
-.banner .msg b.down { color: #ff7b88; }
-.banner small { color: var(--text-2); font-size: var(--fs-xs); }
+.banner .bk { font: 700 var(--fs-xl) var(--font-data); letter-spacing: .06em; white-space: nowrap; }
+.banner .sep { font: 700 var(--fs-xl) var(--font-data); }
+.banner .coin { width: 20px; height: 20px; margin-left: 2px; flex: none; }
+.banner .msg { padding: var(--s1) 0; font: 600 var(--fs-md) var(--font-ui); }
+.banner .msg b { font-weight: 700; }
+.banner .msg b.up { color: color-mix(in srgb, var(--m-vnm) 55%, #000); }
+.banner .msg b.down { color: color-mix(in srgb, var(--m-blz) 60%, #000); }
+.banner .msg a { color: inherit; }
+.banner small { color: var(--page); font-size: var(--fs-xs); }
 @keyframes drop { from { opacity: 0; transform: translate(-50%, -12px); } }
 
 /* =============================== overlays =============================== */
@@ -530,16 +635,18 @@ body.race-on .cambar { display: flex; }
 
   /* The tower: a compact overlay in the corner, only once the race is on.
      --hud: overlay tells the renderer NOT to frame the course around it. */
-  .tower { --hud: overlay; display: none; left: 8px; top: calc(var(--top-h) + 16px); width: 172px; padding: 6px; border-radius: 12px; }
+  .tower { --hud: overlay; display: none; left: 8px; top: calc(var(--top-h) + 16px); width: 172px; padding: 6px; gap: 0; border-radius: 12px; }
   body.race-on .tower { display: flex; }
-  .tower-head { padding: 0 2px 5px; }
-  .tower-title { display: none; }
+  .tower-head, .tower-prog, .tower-sec .lbl { display: none; }
+  .tower-sec { padding: 0 2px 5px; }
   .sector { max-width: 136px; font-size: 10px; }
-  .tower-rows li { height: 24px; grid-template-columns: 20px 3px 14px 1fr auto; gap: 5px; padding-right: 5px; border-radius: 6px; }
-  .tower-rows li .pos { font-size: 13px; }
-  .tower-rows li .coin { width: 14px; height: 14px; }
-  .tower-rows li .nm { font-size: 11.5px; letter-spacing: 0.03em; }
-  .tower-rows li .gap { font-size: 10px; }
+  .tower-rows { --row-gap: 3px; }
+  .tower-rows li { height: 24px; grid-template-columns: 20px 3px minmax(0, 1fr) auto; gap: 5px; padding: 0 5px 0 0; border-radius: 6px; border-width: 0; }
+  .tower-rows li .pos { font-size: 13px; text-align: center; }
+  .tower-rows li .stripe { height: 70%; }
+  .tower-rows li .who .num, .tower-rows li .tk, .tower-rows li.mine .mine-tag { display: none; }
+  .tower-rows li .nm { font: 600 11.5px var(--font-data); letter-spacing: 0.03em; text-transform: uppercase; }
+  .tower-rows li .gap { height: auto; min-width: 0; padding: 0; border: 0; font-size: 10px; }
   .coursemap { display: none; }
 
   /* The rail: a bottom sheet with the market while betting, gone once racing. */
@@ -559,11 +666,15 @@ body.race-on .cambar { display: flex; }
 
   .cambar { bottom: 12px; max-width: calc(100vw - 16px); overflow-x: auto; }
   .cambar .camwhy { display: none; }
-  .cambar button { padding: 0 10px; }
-  .cambar .camcoins button { padding: 0 4px; min-width: 36px; }   /* S3/S6 rebuild this bar; 36px keeps it on one row for now */
+  .cambar button { padding: 0 8px; }
+  .cambar .camcoins button { width: 34px; padding: 0; }
+  .cambar .camcoins .tok { width: 28px; height: 28px; }   /* S6 rebuilds this bar; 36px keeps it on one row for now */
   /* Race control sits ABOVE the camera bar here: at the top it landed on the
      tower overlay and hid the standings (Sanjay: UI covering the cards). */
-  .banner { top: auto; bottom: 76px; }
+  .banner { top: auto; bottom: 76px; padding: 0 var(--s2); border-radius: var(--r-lg); }
+  .banner::before { display: none; }
+  .banner .bk, .banner .sep { font-size: var(--fs-lg); }
+  .banner .msg { font-size: var(--fs-sm); }
   .overlay.lights .count { font-size: 72px; }
   .gantry i { width: 32px; height: 32px; }
   .gantry { gap: 9px; padding: 12px 14px; }

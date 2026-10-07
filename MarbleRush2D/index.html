@@ -65,23 +65,44 @@
   <!-- ===================== left: the timing tower ===================== -->
   <aside class="tower" id="standingsPanel" data-hud>
     <div class="tower-head">
-      <span class="tower-title">Classification</span>
+      <span class="tower-title" id="towerRound">Round 1</span>
+      <span class="tower-state" id="towerState">GRID</span>
+    </div>
+    <div class="tower-sec">
+      <span class="lbl">Section</span>
       <span class="sector" id="sectionName">Starting grid</span>
     </div>
+    <div class="tower-prog" aria-hidden="true"><span class="bar"><i id="towerBar"></i></span><span class="pct" id="towerPct">0%</span></div>
     <ol id="standings" class="tower-rows"></ol>
-    <!-- the whole course, start to finish, with every coin on it -->
-    <div class="coursemap" id="courseMap" aria-label="Course progress">
-      <div class="cm-track"></div>
-      <div class="cm-marks" id="cmMarks"></div>
-      <div class="cm-dots" id="cmDots"></div>
-    </div>
   </aside>
+
+  <!-- Course progress: a thin rail on the left wall of the course column, placed from renderer.courseRect().
+       Event markers with names, and every marble's number on it. -->
+  <div class="coursemap" id="courseMap" role="img" aria-label="Course progress">
+    <div class="cm-track"><i id="cmFill"></i></div>
+    <div class="cm-marks" id="cmMarks"></div>
+    <div class="cm-dots" id="cmDots"></div>
+  </div>
 
   <!-- ======================= right: market + slip ===================== -->
   <aside class="rail" id="rail" data-hud>
-    <section class="card cam">
-      <div class="card-head"><span>Side cam</span><span id="camName" class="muted">-</span></div>
+    <!-- race only: what my marble is doing and what it pays; tap to follow it -->
+    <section class="mycard" id="myMarble" hidden></section>
+
+    <section class="card cam" id="camCard">
+      <div class="card-head">
+        <span class="lbl">Side cam</span><span id="camName" class="who">-</span>
+        <button type="button" class="collapse" id="camToggle" aria-expanded="true" aria-controls="leaderCam" aria-label="Collapse side cam"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+      </div>
       <canvas id="leaderCam"></canvas>
+    </section>
+
+    <!-- race only: the closed pool and what each marble pays -->
+    <section class="card finalpool" id="finalPool">
+      <div class="fp-head"><span class="lbl">Final pool</span><span class="amt"><b id="fpTotal">0</b> <small id="fpCur"></small></span></div>
+      <div class="fp-note" id="fpNote">Betting closed</div>
+      <div class="fp-cols"><span>Marble</span><span>Win</span><span>2nd</span></div>
+      <ul class="fp-rows" id="fpRows"></ul>
     </section>
 
     <section class="card market tote" id="totePanel">

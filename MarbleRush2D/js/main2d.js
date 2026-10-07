@@ -125,6 +125,7 @@ function newRound() {
 /** Everything a new round resets on screen, local or server. */
 function resetRoundUI() {
   renderer = new Renderer2D($('board'), engine, MARBLE_DATA);
+  renderer.onResize = layoutRail;          // the progress rail follows the course column
   renderer.setCam(camMode);
   ring = []; clips = []; pendingClips = []; liveCut = null; replayT = 0;
   resetTower();
@@ -374,26 +375,86 @@ const EVENT_KIND = {
   whitehole: 'warp', greyhole: 'grey', gatehouse: 'gate', mempool: 'pool',
 };
 
-/** Lay out the course map for this round: event markers and five coins. */
-function buildCourseMap() {
-  const y0 = track.sections[0].y0, span = track.finishY - y0;
-  $('cmMarks').innerHTML = track.sections
-    .filter(s => EVENT_KIND[s.id])
-    .map(s => `<i class="${EVENT_KIND[s.id]}" title="${s.name}" style="left:${(((s.y0 + s.y1) / 2 - y0) / span * 100).toFixed(2)}%"></i>`)
-    .join('');
-  $('cmDots').innerHTML = MARBLE_DATA.map((_, i) => `<span id="cm${i}">${coin(i)}</span>`).join('');
+/** Rail geometry, set from the renderer's course column. The rail is hidden on phones (S6 rebuilds it there). */
+let cmMarkers = [], cmH = 0, cmLast = '', leadFrac = 0;
+const RAIL_BOTTOM_RESERVE = 96;    // keeps the rail clear of the camera bar
+
+function layoutRail() {
+  const el = $('courseMap');
+  if (!el || !renderer || !renderer.safe) return;
+  const r = renderer.courseRect();
+  const top = r.y + 24, bottom = Math.min(r.y + r.h, window.innerHeight) - RAIL_BOTTOM_RESERVE;
+  el.style.left = `${Math.round(r.x + 14)}px`;
+  el.style.top = `${Math.round(top)}px`;
+  el.style.height = `${Math.max(120, Math.round(bottom - top))}px`;
+  cmH = el.clientHeight;
+  cmLast = '';
 }
 
-/** Move each coin along the map. Cheap: five style writes a frame. */
-function renderCourseMap() {
+/** Lay out the progress rail for this round: Gate, the named events, Finish. */
+function buildCourseMap() {
   const y0 = track.sections[0].y0, span = track.finishY - y0;
-  for (const m of engine.marbles) {
-    const el = $('cm' + m.index);
-    if (!el) continue;
-    const f = m.finished ? 1 : Math.max(0, Math.min(1, (m.progress - y0) / span));
-    el.style.left = (f * 100).toFixed(2) + '%';
-    el.classList.toggle('out', m.out);
+  const marks = [{ f: 0, name: 'Gate' }];
+  for (const s of track.sections) if (EVENT_KIND[s.id]) marks.push({ f: ((s.y0 + s.y1) / 2 - y0) / span, name: s.name.replace(/^The /, '') });
+  marks.push({ f: 1, name: 'Finish' });
+  // A label only where there is room for it: at least 7% of the rail from the last one. Gate and Finish always win.
+  let last = -1;
+  marks.forEach((m, i) => { m.label = i === 0 || (m.f - last >= 0.07 && m.f < 0.93); if (m.label) last = m.f; });
+  marks[marks.length - 1].label = true;
+  $('cmMarks').innerHTML = marks.map(m =>
+    `<span class="mk${m.label ? ' lb' : ''}" style="top:${(m.f * 100).toFixed(2)}%" title="${esc(m.name)}"><i></i>${m.label ? `<b>${esc(m.name.toUpperCase())}</b>` : ''}</span>`).join('');
+  cmMarkers = [...$('cmMarks').children].map((el, i) => ({ el, f: marks[i].f, passed: false, label: marks[i].label }));
+  $('cmDots').innerHTML = '';
+  cmLast = '';
+  leadFrac = 0;
+  layoutRail();
+}
+
+/** Where a marble is on the course, 0 to 1. */
+function courseFrac(m) {
+  const y0 = track.sections[0].y0, span = track.finishY - y0;
+  return m.finished ? 1 : Math.max(0, Math.min(1, (m.progress - y0) / span));
+}
+
+/** Move the rail's fill and its marble chips. A few string compares a frame, a DOM write only on change. */
+function renderCourseMap() {
+  const live = engine.marbles.filter(m => !m.out).map(m => ({ m, f: courseFrac(m) })).sort((a, b) => b.f - a.f);
+  leadFrac = live.length ? live[0].f : leadFrac;
+  const pct = Math.round(leadFrac * 100);
+  $('cmFill').style.height = `${(leadFrac * 100).toFixed(2)}%`;
+  $('towerBar').style.width = `${(leadFrac * 100).toFixed(1)}%`;
+  if ($('towerPct').textContent !== `${pct}%`) $('towerPct').textContent = `${pct}%`;
+  for (const k of cmMarkers) {
+    const passed = k.f <= leadFrac + 1e-6;
+    if (passed !== k.passed) { k.passed = passed; k.el.classList.toggle('passed', passed); }
   }
+  if (!cmH) return;                                   // hidden (phones) or not laid out yet
+
+  const mine = betting.placed ? betting.selected : -1;
+  const dot = (i, out) => `<span class="dt${out ? ' out' : ''}${i === mine ? ' mine' : ''}" style="--c:${MARBLE_DATA[i].hex}">${i + 1}</span>`;
+  // Marbles closer than 26px on the rail share one chip, leader first, like the design's field chip.
+  const groups = [];
+  for (const x of live) {
+    const g = groups[groups.length - 1];
+    if (g && (g[0].f - x.f) * cmH < 26) g.push(x); else groups.push([x]);
+  }
+  const top = (f) => Math.round(f * cmH - 15);
+  let html = groups.map(g => `<div class="chip" style="top:${top(g[0].f)}px"><span class="pc">${Math.round(g[0].f * 100)}%</span>${g.map(x => dot(x.m.index, false)).join('')}</div>`).join('');
+  const outs = engine.marbles.filter(m => m.out).map(m => ({ m, f: courseFrac(m) })).sort((a, b) => b.f - a.f);
+  const outGroups = [];
+  for (const x of outs) {
+    const g = outGroups[outGroups.length - 1];
+    if (g && (g[0].f - x.f) * cmH < 26) g.push(x); else outGroups.push([x]);
+  }
+  html += outGroups.map(g => `<div class="chip out" style="top:${top(g[0].f)}px">${g.map(x => dot(x.m.index, true)).join('')}<span class="oo">OUT</span></div>`).join('');
+  // Labels under a chip step aside, so a name is never half hidden behind marbles.
+  const boxes = [...groups.map(g => g[0].f * cmH), ...outGroups.map(g => g[0].f * cmH)];
+  for (const k of cmMarkers) {
+    if (!k.label) continue;
+    const y = k.f * cmH, under = boxes.some(b => Math.abs(b - y) < 22);
+    if (under !== k.under) { k.under = under; k.el.classList.toggle('under', under); }
+  }
+  if (html !== cmLast) { cmLast = html; $('cmDots').innerHTML = html; }
 }
 
 /* ----------------------------- race events ----------------------------- */
@@ -439,7 +500,7 @@ function recordFrame() {
 function drawSideCam() {
   const cam = $('leaderCam');
   if (!cam || !cam.clientWidth) return;
-  const panel = cam.closest('.panel');
+  const panel = cam.closest('.cam');
   if (liveCut && liveCut.until > performance.now()) {
     const m = engine.marbles[liveCut.index];
     renderer.drawInset(cam, m.out ? { x: m.outX, y: m.outY } : m);
@@ -476,15 +537,27 @@ function drawReplay(dt) {
 /* ------------------------------- cameras ------------------------------- */
 
 function buildCamBar() {
-  $('camCoins').innerHTML = MARBLE_DATA.map((d, i) => `<button data-cam="${i}" title="Follow ${d.name}">${coin(i)}</button>`).join('');
+  $('camCoins').innerHTML = MARBLE_DATA.map((d, i) =>
+    `<button data-cam="${i}" aria-label="Follow ${d.name}, marble ${i + 1}" title="Follow ${d.name}"><span class="tok" style="--c:${d.hex}">${i + 1}</span></button>`).join('');
   for (const b of document.querySelectorAll('#camBar button')) {
     b.onclick = () => {
+      if (b.classList.contains('out')) return;              // nothing left to follow
       const v = b.dataset.cam;
-      camMode = /^\d$/.test(v) ? +v : v;
-      if (renderer) renderer.setCam(camMode);
-      for (const x of document.querySelectorAll('#camBar button')) x.classList.toggle('on', x === b);
+      setCam(/^\d$/.test(v) ? +v : v);
     };
   }
+  setCam(camMode);
+}
+/** One place that changes the camera, so the bar, the My marble card and the renderer agree. */
+function setCam(mode) {
+  camMode = mode;
+  if (renderer) renderer.setCam(mode);
+  for (const b of document.querySelectorAll('#camBar button')) {
+    const on = b.dataset.cam === String(mode);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on);
+  }
+  myLast = '';
 }
 let camMode = 'auto';
 
@@ -492,6 +565,7 @@ function onRaceEvent(ev) {
   renderer.noteEvent(ev);
   if (ev.type === 'out') {
     pendingClips.push({ index: ev.index, cause: OUT_WORDS[ev.cause] || ev.cause, tickOut: engine.tick, until: engine.tick + Math.round(1.2 * 240) });
+    renderFinalPool();
     liveCut = { index: ev.index, until: performance.now() + 3000 };
   }
   if (ev.type === 'warp') {
@@ -534,10 +608,12 @@ function onRaceEvent(ev) {
     'out');
 }
 
+const BANNER_WORD = { out: 'KNOCKOUT', warp: 'WARP', back: 'INCIDENT', bridge: 'BRIDGE', stake: 'STAKED', launch: 'LAUNCH' };
 function announce(html, kind = '') {
   const el = $('banner');
   el.className = `banner ${kind}`;
-  el.innerHTML = html;
+  // RACE CONTROL | KNOCKOUT · Royal swallowed
+  el.innerHTML = (BANNER_WORD[kind] ? `<span class="bk">${BANNER_WORD[kind]}</span><span class="sep">·</span>` : '') + html;
   el.hidden = false;
   // Restart the entrance animation even when one banner replaces another.
   el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
@@ -701,6 +777,7 @@ function renderTote() {
   });
 
   $('poolTotal').textContent = fmtAmount(betting.totalPool);
+  renderFinalPool();
   $('rakePct').textContent = `${(RAKE * 100).toFixed(0)}%`;
   $('places').textContent = `Top ${PLACE_SHARES.length} paid`;
   renderStakes();
@@ -806,7 +883,9 @@ function resetTower() {
   towerRows = MARBLE_DATA.map((d, i) => {
     const li = document.createElement('li');
     li.style.setProperty('--c', d.hex);
-    li.innerHTML = `<span class="pos"></span><span class="stripe"></span>${coin(i)}<span class="nm">${d.name}</span><span class="gap"></span>`;
+    li.innerHTML = `<span class="pos"></span><span class="stripe"></span>` +
+      `<span class="who"><b class="num">${i + 1}</b><span class="nm">${d.name}</span><i class="tk">${d.ticker}</i></span>` +
+      `<span class="rt"><em class="mine-tag">MINE</em><span class="gap"></span></span>`;
     ol.appendChild(li);
     return li;
   });
@@ -840,8 +919,10 @@ function renderStandings() {
   const order = engine.standings();
   const lead = order[0];
   const preRace = phase === PHASE.BETTING || phase === PHASE.READY || phase === PHASE.COUNTDOWN;
-  const h = towerRows[0].offsetHeight + 3;
-  $('standings').style.height = `${h * order.length - 3}px`;
+  const rowGap = parseFloat(getComputedStyle($('standings')).getPropertyValue('--row-gap')) || 4;
+  const h = towerRows[0].offsetHeight + rowGap;
+  $('standings').style.height = `${h * order.length - rowGap}px`;
+  const mine = betting.placed ? betting.selected : -1;
   order.forEach((m, i) => {
     const li = towerRows[m.index];
     const was = towerOrder.indexOf(m.index);
@@ -853,6 +934,7 @@ function renderStandings() {
     li.querySelector('.pos').textContent = i + 1;
     li.classList.toggle('out', m.out);
     li.classList.toggle('p1', i === 0);
+    li.classList.toggle('mine', m.index === mine);
     let [txt, cls] = preRace ? ['', ''] : gapText(m, lead);
     if (!preRace && !m.out) {
       if (m.frozen && engine.tick < m.frozen) txt = `<span class="flag ice">${m.frozenBy === 'grab' ? 'CLAW' : 'ICE'}</span>`;
@@ -869,6 +951,104 @@ function renderStandings() {
   const name = preRace ? 'Starting grid'
     : lead && lead.y > track.finishY ? 'Finish' : (band ? band.name : 'Run-in');
   if ($('sectionName').textContent !== name) $('sectionName').textContent = name;
+  const rnd = `Round ${betting.round}`, st = preRace ? 'GRID' : phase === PHASE.FINISHED ? 'FINISH' : 'RACING';
+  if ($('towerRound').textContent !== rnd) $('towerRound').textContent = rnd;
+  if ($('towerState').textContent !== st) $('towerState').textContent = st;
+  for (const b of document.querySelectorAll('#camCoins button')) {
+    const out = !!engine.marbles[+b.dataset.cam]?.out;
+    if (out !== b.classList.contains('out')) { b.classList.toggle('out', out); b.setAttribute('aria-disabled', out); }
+  }
+}
+
+/* ----------------------- my marble and the final pool ------------------- */
+
+const ORD = ['1st', '2nd', '3rd', '4th', '5th'];
+let myLast = '', myIdx = -1;
+
+/** Seconds a marble is behind the front of the race, the same figure the tower shows. */
+const behind = (m) => Math.max(0, engine.time - frontAt(m.progress));
+
+/**
+ * The My marble card: where my marble is, and what 1st and 2nd would pay on the CLOSED pool.
+ * The figures are stake / pool on my marble * net pool * the place share: the nominal
+ * payout settlement uses (it only ever pays more, when a paying place had no backers).
+ */
+function renderMyMarble() {
+  const el = $('myMarble');
+  if (!el || !document.body.classList.contains('race-on')) return;
+  const guest = !!betting.guest;
+  const idx = !guest && betting.placed && betting.selected >= 0 ? betting.selected : -1;
+  myIdx = idx;
+  let html, cls = 'mycard', detail = '';
+  if (idx < 0) {
+    cls += ' watch';
+    html = `<div class="mc-top"><span class="tagbox">WATCHING</span><span class="lbl">${guest ? 'Signed out' : 'No bet'}</span></div>` +
+      `<p class="mc-title">${guest ? 'Watching · Connect a wallet to play the next round' : 'You are not in this round'}</p>` +
+      `<p class="mc-sub">Round ${betting.round + 1} betting opens after this race.${guest ? ' Players never need SOL.' : ''}</p>` +
+      (guest ? `<button type="button" class="cta" id="myConnect">Connect</button>` : '');
+  } else {
+    const d = MARBLE_DATA[idx], order = engine.standings(), pos = order.findIndex(m => m.index === idx), m = engine.marbles[idx];
+    const pre = phase === PHASE.COUNTDOWN || phase === PHASE.BETTING || phase === PHASE.READY;
+    const stake = betting.stake;
+    const win = betting.oddsFor(idx, 0), pl = betting.oddsFor(idx, 1);
+    const pay = (o) => (m.out || o === null || o === undefined ? '-' : fmtAmount(o * stake, 2));
+    let title;
+    if (m.out) { title = `${d.name} is out`; detail = 'Knocked out, so this bet cannot pay'; }
+    else if (pre) { title = `${d.name} on the grid`; detail = 'Race starts shortly'; }
+    else if (m.finished) { title = `${d.name} finished ${ORD[pos]}`; detail = `${m.finishTime.toFixed(2)}s`; }
+    else {
+      title = `${d.name} running ${ORD[pos]}`;
+      if (pos === 0) { const nx = order[1]; detail = nx && !nx.out ? `Leading, +${behind(nx).toFixed(2)} clear of ${MARBLE_DATA[nx.index].name}` : 'Leading'; }
+      else { const ah = order[pos - 1]; detail = `+${Math.max(0, behind(m) - (ah === order[0] ? 0 : behind(ah))).toFixed(2)} to ${MARBLE_DATA[ah.index].name}`; }
+    }
+    const following = camMode === idx && !m.out;
+    cls += m.out ? ' out' : ` mine${following ? ' following' : ''}`;
+    html = `<div class="mc-top"><span class="lbl">My marble</span><span class="mc-id"><span class="tok" style="--c:${d.hex}">${idx + 1}</span><b>${String(idx + 1).padStart(2, '0')} ${d.ticker}</b></span></div>` +
+      `<div class="mc-main"><span class="mc-pos">${m.out ? 'OUT' : pre ? '-' : 'P' + (pos + 1)}</span><div class="mc-txt"><span class="mc-title">${esc(title)}</span><span class="mc-detail"></span></div></div>` +
+      `<div class="mc-rule"></div>` +
+      `<div class="mc-pay"><div><span class="lbl">1st would pay</span><b>${pay(win)}</b></div><div><span class="lbl">2nd pays</span><b>${pay(pl)}</b></div><span class="mc-bet">Bet ${fmtA(stake)} ${esc(cur())}</span></div>` +
+      `${m.out ? '' : `<div class="mc-follow">${following ? '<b>FOLLOWING</b> · tap to release the camera' : 'Tap to follow this marble'}</div>`}`;
+  }
+  // The gap line changes every few frames; it is written in place. Rebuilding the markup under the
+  // pointer would drop a click, so the markup is only rebuilt when something structural changes.
+  const dEl = el.querySelector('.mc-detail');
+  if (html === myLast && el.className === cls) {
+    if (dEl && dEl.textContent !== detail) dEl.textContent = detail;
+    return;
+  }
+  myLast = html;
+  el.className = cls;
+  el.hidden = false;
+  el.innerHTML = html;
+  const nd = el.querySelector('.mc-detail');
+  if (nd) nd.textContent = detail;
+  if (idx >= 0 && !engine.marbles[idx].out) { el.setAttribute('role', 'button'); el.tabIndex = 0; el.setAttribute('aria-pressed', camMode === idx); }
+  else { el.removeAttribute('role'); el.removeAttribute('tabindex'); el.removeAttribute('aria-pressed'); }
+}
+const toggleFollow = () => { if (myIdx >= 0 && !engine.marbles[myIdx].out) setCam(camMode === myIdx ? 'auto' : myIdx); };
+$('myMarble').onclick = (e) => {
+  if (e.target.closest('#myConnect')) { openWallet(); return; }
+  toggleFollow();
+};
+$('myMarble').onkeydown = (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); toggleFollow(); }
+};
+
+/** The closed pool and what every marble pays, for the right stack once betting is shut. */
+function renderFinalPool() {
+  const ul = $('fpRows');
+  if (!ul) return;
+  const mine = betting.placed ? betting.selected : -1;
+  $('fpTotal').textContent = fmtAmount(betting.totalPool, 2);
+  $('fpCur').textContent = cur();
+  $('fpNote').textContent = `Betting closed · top ${PLACE_SHARES.length} paid ${PLACE_SHARES.map(x => Math.round(x * 100)).join('/')}`;
+  ul.innerHTML = MARBLE_DATA.map((d, i) => {
+    const o = betting.pools[i] > 0 ? betting.oddsFor(i, 0) : null, p = betting.pools[i] > 0 ? betting.oddsFor(i, 1) : null;
+    const out = !!(engine && engine.marbles[i] && engine.marbles[i].out);
+    return `<li style="--c:${d.hex}"><span class="l"><span class="stripe"></span><span class="num">${i + 1}</span><b class="tk">${d.ticker}</b>` +
+      `${i === mine ? '<em class="mine">MINE</em>' : ''}${out ? '<em class="o">OUT</em>' : ''}</span>` +
+      `<span class="w">${o === null ? '-' : fmtOdds(o)}</span><span class="p">${p === null ? '-' : fmtOdds(p)}</span></li>`;
+  }).join('');
 }
 
 /* ------------------------------ start lights ---------------------------- */
@@ -1091,6 +1271,7 @@ function frame(now) {
   }
   renderStandings();
   renderCourseMap();
+  renderMyMarble();
   renderer.update(dt, phase);
   renderer.draw(phase);
 
@@ -1256,6 +1437,11 @@ $('helpClose').onclick = () => { $('helpOverlay').hidden = true; };
 $('helpOverlay').onclick = (e) => { if (e.target === $('helpOverlay')) $('helpOverlay').hidden = true; };
 
 buildCamBar();
+$('camToggle').onclick = () => {
+  const card = $('camCard'), open = card.classList.toggle('collapsed') === false;
+  $('camToggle').setAttribute('aria-expanded', open);
+  $('camToggle').setAttribute('aria-label', open ? 'Collapse side cam' : 'Expand side cam');
+};
 
 // Boot: a server round if the page came from the round server, else local.
 (async () => {

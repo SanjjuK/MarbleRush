@@ -145,6 +145,13 @@ export class Renderer2D {
       w: Math.max(260, right - left),
       h: Math.max(240, this.ch - top - bottomPad),
     };
+    if (this.onResize) this.onResize();
+  }
+
+  /** Where the course column sits on screen, in CSS pixels: the HUD pins things (the progress rail) to it. */
+  courseRect() {
+    const s = this.safe, w = TRACK_W * this.scale;
+    return { x: s.x + (s.w - w) / 2, y: s.y, w, h: s.h };
   }
 
   /** World units per CSS pixel, chosen so the course fits the clear area. */
