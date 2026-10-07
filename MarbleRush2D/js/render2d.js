@@ -392,7 +392,7 @@ export class Renderer2D {
     for (const p of t.pits || []) {
       if (p.y1 < top - 60 || p.y0 > bot + 60) continue;
       const gr = g.createLinearGradient(0, p.y0 - 40, 0, p.y1);
-      gr.addColorStop(0, E.armed ? 'rgba(255,60,60,0.16)' : 'rgba(144, 137, 129, 0.08)');
+      gr.addColorStop(0, E.armed ? 'rgba(224,71,59,0.16)' : 'rgba(144, 137, 129, 0.08)');
       gr.addColorStop(1, 'rgba(0,0,0,0.55)');
       g.fillStyle = gr;
       g.fillRect(p.x0 - 2, p.y0 - 40, p.x1 - p.x0 + 4, p.y1 - p.y0 + 40);
@@ -429,7 +429,7 @@ export class Renderer2D {
     if (!E.armed) {
       for (const s of nets) {
         g.lineWidth = 3;
-        g.strokeStyle = '#3fd97e';
+        g.strokeStyle = '#36B368';
         g.setLineDash([7, 5]);
         g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
         g.setLineDash([]);
@@ -440,7 +440,7 @@ export class Renderer2D {
     // with the emitters still showing at the walls.
     for (const s of lasers) {
       const on = !E.timedGateOpen(s.gate);
-      const col = s.laser === 'red' ? '255,70,90' : '0,255,170';
+      const col = s.laser === 'red' ? '224,71,59' : '54,179,104';
       g.lineCap = 'butt';
       if (on) {
         g.strokeStyle = `rgba(${col},0.35)`; g.lineWidth = 12;
@@ -455,7 +455,7 @@ export class Renderer2D {
         g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
         g.setLineDash([]);
       }
-      g.fillStyle = on ? `rgb(${col})` : '#2b3550';
+      g.fillStyle = on ? `rgb(${col})` : '#38322C';
       g.fillRect(s.ax - 2, s.ay - 7, 8, 14);
       g.fillRect(s.bx - 6, s.by - 7, 8, 14);
     }
@@ -465,11 +465,11 @@ export class Renderer2D {
       const dx = s.bx - s.ax, dy = s.by - s.ay, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
       g.lineCap = 'round';
       g.lineWidth = 12;
-      g.strokeStyle = '#2b3550';
+      g.strokeStyle = '#38322C';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       const v = E.beltSpeed(s);
       const dir = Math.sign(v), off = ((this.clock * Math.abs(v)) % 26) * dir;
-      g.strokeStyle = v > 0 ? '#3fd97e' : '#ff5a4e';
+      g.strokeStyle = v > 0 ? '#36B368' : '#E0473B';
       g.lineWidth = 2.5;
       for (let d = -26; d < L + 26; d += 26) {
         const k = d + off;
@@ -496,7 +496,7 @@ export class Renderer2D {
         g.globalAlpha = 1 - drop * 0.85;
         g.lineCap = 'round';
         g.lineWidth = 9;
-        g.strokeStyle = isOpen ? '#3fd97e' : C.goldDeep;
+        g.strokeStyle = isOpen ? '#36B368' : C.goldDeep;
         g.beginPath(); g.moveTo(s.ax, s.ay + drop * 30); g.lineTo(s.bx, s.by + drop * 30); g.stroke();
         g.globalAlpha = 1;
         const b = blocks.get(gt) || { x0: 1e9, x1: -1e9, y: 0, gt, at, isOpen };
@@ -521,7 +521,7 @@ export class Renderer2D {
         if (b.gt.label === 'FLASH CRASH' || b.gt.label === 'RUG PULL') {
           g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
-          g.fillStyle = b.isOpen ? '#ff5a78' : 'rgba(255,190,200,0.8)';
+          g.fillStyle = b.isOpen ? '#E0473B' : 'rgba(255,190,200,0.8)';
           g.fillText(b.isOpen ? (b.gt.label === 'RUG PULL' ? 'RUGGED!' : 'CRASH!') : b.gt.label, cx, b.y - 16);
           continue;
         }
@@ -542,14 +542,14 @@ export class Renderer2D {
           const n = b.gt.multi.filter(v => ((E.tick + v.phase) % v.period) < v.open).length;
           b.gt.multi.forEach((v, k) => {
             const on = ((E.tick + v.phase) % v.period) < v.open;
-            g.fillStyle = on ? '#3fd97e' : '#3a2230';
+            g.fillStyle = on ? '#36B368' : '#3a2230';
             g.beginPath(); g.arc(cx - 40 + k * 40, b.y - 62, 11, 0, Math.PI * 2); g.fill();
-            g.lineWidth = 2; g.strokeStyle = on ? '#b7ffd2' : '#ff5a4e';
+            g.lineWidth = 2; g.strokeStyle = on ? '#b7ffd2' : '#E0473B';
             g.beginPath(); g.arc(cx - 40 + k * 40, b.y - 62, 11, 0, Math.PI * 2); g.stroke();
           });
           g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
-          g.fillStyle = b.isOpen ? '#3fd97e' : '#ffd98a';
+          g.fillStyle = b.isOpen ? '#36B368' : '#ffd98a';
           g.fillText(b.isOpen ? `CONSENSUS ${n}/3 · RELEASED` : `VALIDATORS ${n}/3 · NEED 2`, cx, b.y - 86);
           continue;
         }
@@ -560,11 +560,11 @@ export class Renderer2D {
         g.lineWidth = 6;
         g.strokeStyle = 'rgba(255,255,255,0.10)';
         g.beginPath(); g.moveTo(cx - 150, b.y - 58); g.lineTo(cx + 150, b.y - 58); g.stroke();
-        g.strokeStyle = b.isOpen ? '#3fd97e' : C.goldDeep;
+        g.strokeStyle = b.isOpen ? '#36B368' : C.goldDeep;
         g.beginPath(); g.moveTo(cx - 150, b.y - 58); g.lineTo(cx - 150 + 300 * frac, b.y - 58); g.stroke();
         g.font = '700 15px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
-        g.fillStyle = b.isOpen ? '#3fd97e' : '#ffd98a';
+        g.fillStyle = b.isOpen ? '#36B368' : '#ffd98a';
         if (b.gt.label) {
           g.fillText(b.isOpen ? `${b.gt.label} · OPEN` : `${b.gt.label} ${secs.toFixed(1)}s`, cx, b.y - 72);
         } else {
@@ -606,11 +606,11 @@ export class Renderer2D {
       g.lineWidth = 5;
       g.strokeStyle = 'rgba(255,255,255,0.12)';
       g.beginPath(); g.moveTo(s.ax + side, s.ay); g.lineTo(s.ax + side, s.by); g.stroke();
-      g.strokeStyle = isOpen ? '#3fd97e' : '#ff5a4e';
+      g.strokeStyle = isOpen ? '#36B368' : '#E0473B';
       g.beginPath(); g.moveTo(s.ax + side, s.by); g.lineTo(s.ax + side, s.by - len * left); g.stroke();
       g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'center';
-      g.fillStyle = isOpen ? '#3fd97e' : '#ff5a4e';
+      g.fillStyle = isOpen ? '#36B368' : '#E0473B';
       g.fillText(isOpen ? 'OPEN' : 'SHUT', s.ax + side * 2.2, s.ay - 10);
       g.lineCap = 'round';
     }
@@ -624,7 +624,7 @@ export class Renderer2D {
       const d = s.door;
       g.lineCap = 'butt';
       g.lineWidth = 4;
-      g.strokeStyle = 'rgba(255, 90, 78, 0.8)';
+      g.strokeStyle = 'rgba(224,71,59, 0.8)';
       g.beginPath();
       g.moveTo(s.ax - 12, d.y0); g.lineTo(s.ax + 12, d.y0);
       g.moveTo(s.ax - 12, d.y1); g.lineTo(s.ax + 12, d.y1);
@@ -643,7 +643,7 @@ export class Renderer2D {
     // Dash pads: a lit strip with chevrons pointing the way it throws.
     for (const s of pads) {
       g.lineWidth = 10;
-      g.strokeStyle = '#1fb8ff';
+      g.strokeStyle = '#3B87E6';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       const dir = Math.sign(s.boost.vx) || 1;
       const x0 = Math.min(s.ax, s.bx), x1 = Math.max(s.ax, s.bx);
@@ -735,7 +735,7 @@ export class Renderer2D {
       // The plate itself, lit while recharging.
       g.lineCap = 'round';
       g.lineWidth = 9;
-      g.strokeStyle = st.tick >= 0 ? C.gold : '#3fd97e';
+      g.strokeStyle = st.tick >= 0 ? C.gold : '#36B368';
       g.beginPath();
       g.moveTo(p.ax + ox, p.ay + oy); g.lineTo(p.bx + ox, p.by + oy);
       g.stroke();
@@ -753,7 +753,7 @@ export class Renderer2D {
       g.strokeStyle = hot ? C.gold : '#e1dedb';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       g.lineWidth = f.fr * 2 - 3;
-      g.strokeStyle = hot ? '#ff9f1c' : '#ff5a4e';
+      g.strokeStyle = hot ? '#ff9f1c' : '#E0473B';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       g.fillStyle = C.ink;
       g.beginPath(); g.arc(s.ax, s.ay, 6, 0, Math.PI * 2); g.fill();
@@ -803,7 +803,7 @@ export class Renderer2D {
       if (b.node) {
         // A validator: a hexagon ring, green when it confirms a hit.
         g.lineWidth = 2;
-        g.strokeStyle = b.flash > 0 ? '#3fd97e' : 'rgba(143,166,207,0.7)';
+        g.strokeStyle = b.flash > 0 ? '#36B368' : 'rgba(179,170,158,0.7)';
         g.beginPath();
         for (let k = 0; k < 6; k++) {
           const a = k * Math.PI / 3 + Math.PI / 6;
@@ -814,7 +814,7 @@ export class Renderer2D {
         if (b.flash > 0.6) {
           g.font = '700 10px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
-          g.fillStyle = `rgba(63,217,126,${(b.flash - 0.6) * 2.5})`;
+          g.fillStyle = `rgba(54,179,104,${(b.flash - 0.6) * 2.5})`;
           g.fillText('+1 block', b.x, b.y - b.r - 10 - (1 - b.flash) * 30);
         }
       }
@@ -876,11 +876,11 @@ export class Renderer2D {
         g.rotate(-0.22);
         g.scale(sc, sc);
         g.globalAlpha = a * fade;
-        g.strokeStyle = '#ff3b3b'; g.lineWidth = 3;
+        g.strokeStyle = '#E0473B'; g.lineWidth = 3;
         g.strokeRect(-44, -17, 88, 34);
         g.font = '700 24px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillStyle = '#ff3b3b';
+        g.fillStyle = '#E0473B';
         g.fillText('REKT', 0, 1);
         g.textBaseline = 'alphabetic';
         g.restore();
@@ -935,7 +935,7 @@ export class Renderer2D {
           }
         }
         // The fan housing: a grille on the upwind edge.
-        g.fillStyle = on ? '#7cc8ff' : '#3a4a66';
+        g.fillStyle = on ? '#7cc8ff' : '#4A423A';
         if (z.fy < 0) g.fillRect(z.x0 + 10, z.y1 - 6, w - 20, 6);
         else if (z.fx * E.fanDir(z) > 0) g.fillRect(z.x0 - 4, z.y0 + 6, 6, h - 12);
         else g.fillRect(z.x1 - 2, z.y0 + 6, 6, h - 12);
@@ -968,8 +968,8 @@ export class Renderer2D {
         g.textAlign = 'center';
         g.fillText(z.diamond ? '💎' : '🧻', cx, top - 34);
       } else if (z.kind === 'reorg') {
-        g.fillStyle = on ? 'rgba(168,85,247,0.28)' : 'rgba(168,85,247,0.06)';
-        g.strokeStyle = on ? '#c084fc' : 'rgba(192,132,252,0.35)';
+        g.fillStyle = on ? 'rgba(145,97,227,0.28)' : 'rgba(145,97,227,0.06)';
+        g.strokeStyle = on ? '#9161E3' : 'rgba(145,97,227,0.35)';
         g.lineWidth = 2;
         g.beginPath(); g.roundRect(z.x0, z.y0, w, h, 8); g.fill(); g.stroke();
         g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
@@ -993,22 +993,22 @@ export class Renderer2D {
           g.setLineDash([]); g.lineDashOffset = 0;
           if (p > 0) {
             const glow = g.createRadialGradient(z.cx, z.cy, 20, z.cx, z.cy, z.rad);
-            glow.addColorStop(0, `rgba(96,165,250,${0.28 * p})`);
-            glow.addColorStop(1, 'rgba(96,165,250,0)');
+            glow.addColorStop(0, `rgba(59,135,230,${0.28 * p})`);
+            glow.addColorStop(1, 'rgba(59,135,230,0)');
             g.fillStyle = glow; g.beginPath(); g.arc(z.cx, z.cy, z.rad, 0, Math.PI * 2); g.fill();
           }
         }
         const spin = 1 + 3 * p;
         for (let k = 1; k <= 5; k++) {
           const r = z.rad * (k / 5) ** 1.4;
-          g.strokeStyle = `rgba(96,165,250,${0.05 + 0.05 * (6 - k) / 5 + 0.25 * p})`; g.lineWidth = 2;
+          g.strokeStyle = `rgba(59,135,230,${0.05 + 0.05 * (6 - k) / 5 + 0.25 * p})`; g.lineWidth = 2;
           g.beginPath(); g.arc(z.cx, z.cy, r, this.clock * spin * (1.2 - k * 0.15), this.clock * spin * (1.2 - k * 0.15) + 5); g.stroke();
         }
         g.font = '22px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
         g.fillText('🐋', z.cx, z.cy + 8);
       } else if (z.kind === 'brake') {
         g.setLineDash([8, 6]);
-        g.strokeStyle = 'rgba(255,90,78,0.7)';
+        g.strokeStyle = 'rgba(224,71,59,0.7)';
         g.lineWidth = 2;
         g.strokeRect(z.x0, z.y0, w, h);
         g.setLineDash([]);
@@ -1016,7 +1016,7 @@ export class Renderer2D {
         const cx = (z.x0 + z.x1) / 2, cy = z.y0 - 26;
         g.fillStyle = '#ffffff';
         g.beginPath(); g.arc(cx, cy, 20, 0, Math.PI * 2); g.fill();
-        g.lineWidth = 5; g.strokeStyle = '#e5322b';
+        g.lineWidth = 5; g.strokeStyle = '#E0473B';
         g.beginPath(); g.arc(cx, cy, 17, 0, Math.PI * 2); g.stroke();
         g.fillStyle = '#111';
         g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
@@ -1048,7 +1048,7 @@ export class Renderer2D {
     for (const o of t.movers || []) {
       if (!vis(Math.min(o.ay, o.by), Math.max(o.ay, o.by))) continue;
       g.lineWidth = 2;
-      g.strokeStyle = 'rgba(143,166,207,0.25)';
+      g.strokeStyle = 'rgba(179,170,158,0.25)';
       g.beginPath(); g.moveTo(o.ax, o.ay); g.lineTo(o.bx, o.by); g.stroke();
       const grd = g.createRadialGradient(o.x - 5, o.y - 5, 2, o.x, o.y, o.r);
       if (o.kind === 'bot' || o.kind === 'runner') {
@@ -1057,7 +1057,7 @@ export class Renderer2D {
         g.fillStyle = grd;
         g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
         const dir = Math.sign(o.vx) || 1;
-        g.fillStyle = '#ff3b3b';
+        g.fillStyle = '#E0473B';
         g.beginPath(); g.arc(o.x + dir * o.r * 0.35, o.y - o.r * 0.15, o.r * 0.22, 0, Math.PI * 2); g.fill();
         if (o.kind === 'runner') {
           g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;
@@ -1080,7 +1080,7 @@ export class Renderer2D {
       const L = Math.hypot(c.vx, c.vy), ux = c.vx / L, uy = c.vy / L;
       g.lineCap = 'round';
       g.lineWidth = 30;
-      g.strokeStyle = '#2d3a58';
+      g.strokeStyle = '#3A332D';
       g.beginPath(); g.moveTo(c.mx - ux * 40, c.my - uy * 40); g.lineTo(c.mx + ux * 10, c.my + uy * 10); g.stroke();
       g.lineWidth = 3;
       g.strokeStyle = C.goldDeep;
@@ -1213,7 +1213,7 @@ export class Renderer2D {
           const o = ay + (by - ay) * f0 + (h - 0.5) * 10, cl = ay + (by - ay) * f1 + (hash(x + 3) - 0.5) * 10;
           const up = cl < o;
           const hi = Math.min(o, cl) - 4 - h * 14, lo = Math.max(o, cl) + 4 + hash(x + 7) * 14;
-          const col = up ? '63,217,126' : '255,90,78';
+          const col = up ? '54,179,104' : '224,71,59';
           g.strokeStyle = `rgba(${col},0.6)`;
           g.lineWidth = 1.5;
           g.beginPath(); g.moveTo(x, hi - 34); g.lineTo(x, lo - 34); g.stroke();
@@ -1229,7 +1229,7 @@ export class Renderer2D {
       // Area under the line.
       const grd = g.createLinearGradient(0, yTop, 0, yBot);
       const endUp = c.pts[c.pts.length - 1][1] < y0;
-      grd.addColorStop(0, endUp ? 'rgba(63,217,126,0.18)' : 'rgba(255,90,78,0.18)');
+      grd.addColorStop(0, endUp ? 'rgba(54,179,104,0.18)' : 'rgba(224,71,59,0.18)');
       grd.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = grd;
       g.beginPath(); g.moveTo(c.pts[0][0], c.pts[0][1]);
@@ -1247,7 +1247,7 @@ export class Renderer2D {
         }
         g.globalAlpha = alpha;
         g.lineWidth = s.chart === 'pump' ? 12 : 8;
-        g.strokeStyle = s.chart === 'down' ? (s.gate ? '#ff2d55' : '#ff5a4e') : '#3fd97e';
+        g.strokeStyle = s.chart === 'down' ? (s.gate ? '#E0473B' : '#E0473B') : '#36B368';
         g.beginPath(); g.moveTo(s.ax, s.ay + off); g.lineTo(s.bx, s.by + off); g.stroke();
         g.globalAlpha = 1;
         if (s.gate) {
@@ -1288,7 +1288,7 @@ export class Renderer2D {
       const ly = lead ? lineY(lead.x) : c.pts[c.pts.length - 1][1];
       const p = price(ly), chg = (p - 1) * 100, upNow = chg >= 0;
       g.setLineDash([4, 4]); g.lineWidth = 1;
-      g.strokeStyle = upNow ? 'rgba(63,217,126,0.7)' : 'rgba(255,90,78,0.7)';
+      g.strokeStyle = upNow ? 'rgba(54,179,104,0.7)' : 'rgba(224,71,59,0.7)';
       g.beginPath(); g.moveTo(xL, ly); g.lineTo(xR - 64, ly); g.stroke(); g.setLineDash([]);
       g.fillStyle = upNow ? '#1f9d57' : '#c9302c';
       g.beginPath(); g.roundRect(xR - 66, ly - 10, 62, 20, 4); g.fill();
@@ -1301,7 +1301,7 @@ export class Renderer2D {
       g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.fillStyle = 'rgba(244, 241, 237, 0.9)';
       g.fillText(c.pair, xL + 12, yTop + 22);
-      g.fillStyle = upNow ? '#3fd97e' : '#ff5a4e';
+      g.fillStyle = upNow ? '#36B368' : '#E0473B';
       g.fillText(`${upNow ? '▲ +' : '▼ '}${chg.toFixed(2)}%`, xL + 112, yTop + 22);
       g.font = '600 11px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.fillStyle = 'rgba(219, 213, 208, 0.5)';
@@ -1315,7 +1315,7 @@ export class Renderer2D {
         'MRBL hash rate hits all-time high  ·  Local marble "not selling", says marble  ·';
       g.save();
       g.beginPath(); g.rect(xL, yBot - 22, xR - xL, 22); g.clip();
-      g.fillStyle = 'rgba(255,90,78,0.85)';
+      g.fillStyle = 'rgba(224,71,59,0.85)';
       g.fillRect(xL, yBot - 22, 78, 22);
       g.fillStyle = 'rgba(12,16,28,0.9)';
       g.fillRect(xL + 78, yBot - 22, xR - xL - 78, 22);
@@ -1420,7 +1420,7 @@ export class Renderer2D {
     if (!armed) {
       g.beginPath();
       g.arc(h.x, h.y, h.core, 0, Math.PI * 2);
-      g.fillStyle = '#3a4560';
+      g.fillStyle = '#443D36';
       g.fill();
       g.lineWidth = 3;
       g.strokeStyle = '#787067';
