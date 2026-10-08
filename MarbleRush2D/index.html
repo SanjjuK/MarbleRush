@@ -178,7 +178,7 @@
           <span id="proofState">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="proofHash">-</code>
         </div>
         <p id="proofText"></p>
-        <button type="button" class="ghost" id="proofVerify" hidden>Verify seal ↗</button>
+        <button type="button" class="ghost" id="proofVerify">Round proof</button>
       </section>
 
       <section class="card feedcard">
@@ -261,7 +261,7 @@
 
       <div class="proofbar" id="proofBar">
         <span class="proofpill sm" id="resProof"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span id="resProofText">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="resProofHash">-</code></span>
-        <button type="button" class="ghost" id="resProofBtn" hidden>Round proof ↗</button>
+        <button type="button" class="ghost" id="resProofBtn">Round proof</button>
       </div>
 
       <aside class="resstack" id="resStack" data-hud>
@@ -287,50 +287,16 @@
     </div>
   </div>
 
-  <div class="overlay modal" id="walletOverlay" hidden>
-    <div class="card help" id="walletCard"></div>
+  <div class="overlay modal sheetov" id="walletOverlay" hidden>
+    <div class="card help sheetcard" id="walletCard"></div>
   </div>
 
-  <div class="overlay modal" id="helpOverlay" hidden>
-    <div class="card help">
-      <p class="kicker">How MarbleRush works</p>
-      <ol class="steps">
-        <li><b>Back a marble.</b> Every stake goes into one pool. Odds are what
-            the pool would pay right now, and they move as money arrives,
-            exactly like a tote board.</li>
-        <li><b>Beat the clock.</b> Betting runs on a 30 second clock and the
-            gates open when it ends. You get one bet per round: change your
-            marble and stake until you press Bet, then it is locked once sent.
-            Miss the clock and you watch this race and join the next.</li>
-        <li><b>Every course is new.</b> Built for each race from a library of
-            over a hundred sections, about 3 to 4 minutes long, and arranged
-            so the race stays open to the end: one of two fair openers, calm
-            sections early, a mix of machines in the run-in, and a Mempool
-            that bunches the field.</li>
-        <li><b>Machines wear.</b> The first marble to reach a machine meets it
-            at full strength: the longest flipper, the longest freeze, the
-            longest wait at a laser or a cup, the strongest pull of a whale's
-            gravity well. Each marble after meets it a little weaker. Nothing knows who is leading; being first is simply
-            what makes you meet it first.</li>
-        <li><b>Chaos is part of the course.</b> Sweeping white and grey holes
-            warp a marble about 3 seconds; cryo traps freeze for 2; bridges,
-            vaults, claws and reorgs hold or send back a moment. None of it
-            knows who is leading.</li>
-        <li><b>Knockouts are rare.</b> The Jump, the Edge, the Breach or a black
-            hole can take a marble out, at most two a race, so both paid places
-            always go to finishers.</li>
-        <li><b>Top two are paid.</b> 75% of the pool to the winner's backers,
-            25% to the runner-up's, each split in proportion to stake.</li>
-        <li><b>Provably fair.</b> The race is decided before betting opens.
-            Its seed's SHA-256 hash is shown while you bet, and the seed is
-            revealed at the lights so anyone can replay the race.</li>
-      </ol>
-      <p class="note">A parimutuel pool pays shares of a fixed pot rather than
-        fixed multiples, so a heavily backed marble pays less even when it
-        wins. Rake is 5%. All money here is demo money.</p>
-      <div id="helpAppearance"></div>
-      <button id="helpClose" class="cta">Got it</button>
-    </div>
+  <div class="overlay modal sheetov" id="proofOverlay" hidden>
+    <div class="card help sheetcard" id="proofSheet"></div>
+  </div>
+
+  <div class="overlay modal sheetov" id="helpOverlay" hidden>
+    <div class="card help sheetcard hstep" id="helpCard"></div>
   </div>
 
   <script type="module" src="js/main2d.js"></script>

@@ -874,19 +874,18 @@ function renderFair() {
   }
   label.textContent = text;
   el.classList.toggle('sealing', sealing);
-  el.classList.toggle('link', !!sig);
-  el.setAttribute('aria-disabled', sig ? 'false' : 'true');
-  // S9 turns this into the proof card; until then it opens the transaction directly.
-  const open = sig ? () => window.open(explorer(sig, c.cluster), '_blank', 'noopener,noreferrer') : null;
+  el.classList.add('link');
+  el.setAttribute('aria-disabled', 'false');
+  const open = openProof;                                 // the pill opens the proof card; it links to both transactions
   el.onclick = open;
-  el.title = sig ? 'Open this round\'s transaction on the Solana explorer' : 'The race is fixed by this hash before betting opens; the seed is revealed when the gates open.';
+  el.title = 'Open this round\'s proof';
   // The phone's copy of the pill, under the betting ring (the top bar's shield steps aside there).
   const mf = $('mFair');
   $('mFairLabel').textContent = text;
   $('mFairHash').textContent = $('commitment').textContent;
   mf.classList.toggle('sealing', sealing);
-  mf.classList.toggle('link', !!sig);
-  mf.setAttribute('aria-disabled', sig ? 'false' : 'true');
+  mf.classList.add('link');
+  mf.setAttribute('aria-disabled', 'false');
   mf.onclick = open;
   mf.title = el.title;
 
@@ -902,14 +901,13 @@ function renderFair() {
     fixed: `Round ${n} is fixed by this hash before betting opens. The seed is revealed when the gates open, so anyone can replay the race.`,
   }[state];
   const v = $('proofVerify');
-  v.hidden = !open;
   v.onclick = open;
   // The same facts on the result screen's proof bar (S9 turns the button into the proof card).
   $('resProofText').textContent = text;
   $('resProofHash').textContent = $('commitment').textContent;
   $('resProof').classList.toggle('sealing', sealing);
-  $('resProofBtn').hidden = !open;
   $('resProofBtn').onclick = open;
+  if (!$('proofOverlay').hidden) renderProof();           // a chain event while the card is open
 }
 
 /* ------------------------------- the bet dock ------------------------------- */
@@ -1837,7 +1835,6 @@ document.addEventListener('keydown', (e) => {
   const nb = b.parentElement.querySelector(`[data-p="${next}"]`);
   if (nb) nb.focus();
 });
-$('helpAppearance').innerHTML = appearanceRow();
 
 function shortAddr(a) { return a ? `${a.slice(0, 4)}...${a.slice(-4)}` : ''; }
 
@@ -2057,11 +2054,11 @@ function openWallet(err = '') {
     walletFailedView({ id: null, name: 'your wallet', title: "Couldn't connect", text: err });
   } else walletConnectView();
 }
-$('walletOverlay').onclick = (e) => { if (e.target === $('walletOverlay')) closeWallet(); };
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('walletOverlay').hidden) closeWallet(); });
-// On a phone the card is a bottom sheet: drag the handle down to close it.
-(() => {
-  const card = $('walletCard'); let d = null;
+/** Backdrop tap, Escape and (on a phone) dragging the handle down close a modal card; shared by the wallet, proof and help cards. */
+function sheetCard(overlay, card, close) {
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.hidden) close(); });
+  let d = null;
   card.addEventListener('pointerdown', (e) => {
     if (!phone.matches || !e.target.closest('.whandle')) return;
     d = { y0: e.clientY, dy: 0 };
@@ -2077,14 +2074,152 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('wall
     if (!d) return;
     const far = d.dy > 80; d = null;
     card.classList.remove('dragging');
-    if (far) closeWallet(); else card.style.transform = '';
+    if (far) close(); else card.style.transform = '';
   };
   card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
-})();
+}
+sheetCard($('walletOverlay'), $('walletCard'), closeWallet);
 
-$('helpBtn').onclick = () => { $('helpOverlay').hidden = false; };
-$('helpClose').onclick = () => { $('helpOverlay').hidden = true; };
-$('helpOverlay').onclick = (e) => { if (e.target === $('helpOverlay')) $('helpOverlay').hidden = true; };
+/* ------------------------------ the round proof card (B1 to B3) ------------------------------ */
+
+const SVG_SHIELD = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>';
+const SVG_SHIELD_OFF = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/></svg>';
+const SVG_X = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const midHash = (h, a = 12, b = 4) => (h && h.length > a + b + 3 ? `${h.slice(0, a)}...${h.slice(-b)}` : h || '');
+
+/** What Solana (or, without a chain, only the server's commitment) holds for the round on screen. */
+function proofFacts() {
+  const c = NET ? betting.chain : null, n = betting.round;
+  const hash = betting.commitment || '', seed = betting.seed || '';
+  let state = 'fixed';
+  if (c && c.cluster) {
+    if (c.reveal.status === 'confirmed') state = 'verified';
+    else if (c.commit.status === 'confirmed') state = 'sealed';
+    else if (c.commit.status === 'pending') state = 'sealing';
+    else state = 'none';
+  }
+  return { c, n, hash, seed, state, token: betting.token || null };
+}
+
+function renderProof() {
+  const { c, n, hash, seed, state, token } = proofFacts();
+  const tx = (slot, later) => {
+    if (!c || !c.cluster) return `<span class="v later">None</span>`;
+    if (slot.status === 'confirmed' && slot.sig) return `<a class="v" href="${explorer(slot.sig, c.cluster)}" target="_blank" rel="noopener noreferrer">${midHash(slot.sig, 4, 3)} ↗</a>`;
+    if (slot.status === 'pending') return `<span class="v later">Confirming…</span>`;
+    return `<span class="v later">${state === 'none' ? 'None' : later}</span>`;
+  };
+  const head = {
+    verified: [SVG_SHIELD, 'Verified on Solana', ''], sealed: [SVG_SHIELD, 'Sealed on Solana', 'SEALED'],
+    sealing: [SVG_SHIELD, 'Sealing on Solana…', ''], fixed: [SVG_SHIELD, 'Fixed before betting', ''], none: [SVG_SHIELD_OFF, 'Not sealed on Solana', ''],
+  }[state];
+  const text = {
+    verified: 'We sealed this round before betting opened. After the race we revealed the seed so anyone can replay it.',
+    sealed: 'We sealed this round before betting opened. After the race we revealed the seed so anyone can replay it.',
+    sealing: 'This round is being sealed on Solana. Betting opens as soon as it is sealed.',
+    fixed: 'This round was fixed by the hash below before betting opened, and the seed is revealed after the race. In this mode it is not recorded on Solana.',
+    none: 'This round cannot be verified on-chain. It was not sealed before betting, so bets were turned off and it runs as a watch-only race.',
+  }[state];
+  const copy = (val, label) => val ? `<button type="button" class="wcopy head" data-pcopy="${esc(val)}" aria-label="Copy ${label}">${SVG_COPY}</button>` : '';
+  const revealSig = c && c.reveal.status === 'confirmed' ? c.reveal.sig : '';
+  const row = (k, v, cp = '') => `<div class="prow"><span class="k">${k}</span>${v}${cp}</div>`;
+  $('proofSheet').innerHTML = GRAB +
+    `<div class="proofhead"><p class="wlabel">Round proof</p><button type="button" class="xbtn" id="proofX" aria-label="Close">${SVG_X}</button></div>` +
+    `<div class="pstate${state === 'none' ? ' none' : ''}" id="proofTitle">${head[0]}${head[1]}${head[2] ? `<em class="wtag2">${head[2]}</em>` : ''}</div>` +
+    `<p class="wnote">${text}</p>` +
+    `<div class="prows">` +
+    row('Round', `<span class="v">${n}</span>`) +
+    row('Token', `<span class="v">${token || 'Demo money'}</span>`) +
+    row('Commit hash', hash ? `<span class="v mono" title="${hash}">${midHash(hash)}</span>` : `<span class="v later">Not recorded</span>`, copy(hash, 'commit hash')) +
+    row('Race seed', seed ? `<span class="v mono" title="${seed}">${midHash(seed, 8, 4)}</span>` : `<span class="v later">${state === 'none' ? 'Not revealed on-chain' : 'Revealed after the race'}</span>`, copy(seed, 'race seed')) +
+    row('Commit tx', c && c.cluster ? tx(c.commit, 'Pending') : `<span class="v later">None</span>`) +
+    row('Reveal tx', c && c.cluster ? tx(c.reveal, 'After the race') : `<span class="v later">None</span>`) +
+    `</div>` +
+    (state === 'none' ? '' : `<button type="button" class="wbtn dashed" id="proofReplay"${seed && hash ? '' : ' disabled'}>${seed && hash ? 'Replay it yourself' : 'Replay opens after the reveal'}</button><p class="presult" id="proofResult" role="status"></p>`) +
+    (revealSig ? `<div class="pdev"><p class="wlabel">For developers</p><div class="pcmd"><code>npm run verify-round -- ${esc(revealSig)}</code>${copy(`npm run verify-round -- ${revealSig}`, 'command')}</div></div>` : '');
+  $('proofX').onclick = closeProof;
+  for (const b of $('proofSheet').querySelectorAll('[data-pcopy]')) {
+    b.onclick = async () => {
+      try { await navigator.clipboard.writeText(b.dataset.pcopy); b.classList.add('done'); setTimeout(() => b.classList.remove('done'), 1400); } catch (_) { /* clipboard blocked */ }
+    };
+  }
+  const rp = $('proofReplay');
+  if (rp && !rp.disabled) rp.onclick = async () => {
+    const out = $('proofResult');
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+      const got = [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+      out.textContent = got === hash
+        ? 'The revealed seed hashes to the committed hash. The race you watched was run from this seed on your own screen.'
+        : 'The revealed seed does NOT hash to the committed hash. Do not trust this round.';
+    } catch (_) { out.textContent = 'This browser cannot compute the hash here. Use the developer command below.'; }
+  };
+}
+function openProof() {
+  renderProof();
+  $('proofOverlay').hidden = false;
+  const c = $('proofSheet'); c.tabIndex = -1; c.setAttribute('role', 'dialog'); c.setAttribute('aria-modal', 'true'); c.setAttribute('aria-labelledby', 'proofTitle');
+  try { c.focus({ preventScroll: true }); } catch (_) { /* nothing to focus */ }
+}
+function closeProof() { $('proofOverlay').hidden = true; $('proofSheet').style.transform = ''; }
+sheetCard($('proofOverlay'), $('proofSheet'), closeProof);
+
+/* ------------------------------ onboarding (C1 to C5) ------------------------------ */
+
+const HELP_SEEN = 'mr.onboarded';
+let helpI = 0;
+const helpArt = {
+  bars: () => `<div class="hart bars" aria-hidden="true">${[['blz', 62], ['frs', 88], ['vnm', 48], ['roy', 30], ['bul', 72]].map(([k, w], i) => `<div class="hbar"><b>${i + 1}</b><i style="width:${w}%;--c:var(--m-${k})"></i></div>`).join('')}</div>`,
+  clock: () => `<div class="hart clock" aria-hidden="true"><div class="hring"><b>0:30</b></div><span class="hchip">One bet · locked once sent</span></div>`,
+  tiles: () => `<div class="hart" aria-hidden="true"><div class="htiles"><div class="htile">Opener</div><div class="htile">Run-in</div><div class="htile">Mempool <em>OUT</em></div></div></div>`,
+  pool: () => `<div class="hart" aria-hidden="true"><div class="hpool"><div class="strip"><span class="rk">5%</span><span class="p1">1ST 75%</span><span class="p2">2ND 25%</span></div><div class="cap"><span>Rake</span><span>Backers of first</span><span>Second</span></div></div></div>`,
+  flow: () => `<div class="hart" aria-hidden="true"><div class="hflow"><span>SEAL</span><i></i><span>RACE</span><i></i><span>REVEAL</span></div></div>`,
+};
+function poolExample() {
+  const live = betting.totalPool > 0, pool = live ? betting.totalPool : 1000, net = pool * (1 - RAKE);
+  const pays = `${fmtAmount(net * PLACE_SHARES[0])} to backers of first and ${fmtAmount(net * PLACE_SHARES[1])} to backers of second, each split by stake`;
+  return live ? `This round's pool of ${fmtA(pool)} ${betting.currency} would pay ${pays}.` : `Example: a pool of ${fmtA(pool)} pays ${pays}.`;
+}
+const HELP_STEPS = [
+  { t: 'Back a marble', art: 'bars', p: () => 'Pick one of five. The odds move like a tote board as money arrives, so the price you see is live until the clock ends.' },
+  { t: 'Beat the clock', art: 'clock', p: () => 'Betting runs on a 30 second clock and the gates open when it ends. One bet per round: change your marble and stake until you press Bet, then it is locked once sent. Miss the clock and you watch this race and join the next.' },
+  { t: 'Every course is new', art: 'tiles', p: () => 'Each race is built fresh from over a hundred sections, about 3 to 4 minutes long. Machines are toughest on whoever reaches them first and chaos hits everyone alike. Knockouts are rare, at most two a race, so both paid places always go to finishers.' },
+  { t: 'Top two are paid', art: 'pool', p: () => `After a ${Math.round(RAKE * 100)}% rake, 75% of the pool goes to backers of first place and 25% to backers of second. A heavily backed marble pays less even when it wins.`, ex: poolExample },
+  { t: 'Provably fair', art: 'flow', p: () => 'Every round is fixed by a hash before betting opens and revealed after the race, so anyone can replay it. On devnet rounds that hash is sealed on Solana.', note: true },
+];
+function renderHelp(dir) {
+  const st = HELP_STEPS[helpI], last = helpI === HELP_STEPS.length - 1;
+  $('helpCard').innerHTML = GRAB +
+    `<div class="hmeta"><p class="wlabel">${helpI + 1} of ${HELP_STEPS.length}</p>${last ? '' : '<button type="button" class="hskip" id="helpSkip">Skip</button>'}</div>` +
+    `<div class="hslide${dir < 0 ? ' back' : ''}">${helpArt[st.art]()}<div class="hbody"><p class="wlabel">How it works</p><h2 id="helpTitle">${st.t}</h2><p>${st.p()}</p>` +
+    (st.ex ? `<p class="ex">${st.ex()}</p>` : '') +
+    (st.note ? `<p class="hnote"><span class="devnet">DEVNET</span>Devnet test money. No real funds.</p>` + appearanceRow() : '') + `</div></div>` +
+    `<div class="hdots" aria-hidden="true">${HELP_STEPS.map((_, i) => `<i class="${i === helpI ? 'on' : ''}"></i>`).join('')}</div>` +
+    `<div class="hnav">${helpI ? '<button type="button" class="wbtn ghost" id="helpBack">Back</button>' : ''}` +
+    (last ? '<button type="button" class="wbtn" id="helpClose">Got it</button>' : '<button type="button" class="wbtn" id="helpNext">Next</button>') + `</div>`;
+  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  on('helpNext', () => { helpI++; renderHelp(1); $('helpNext')?.focus(); $('helpClose')?.focus(); });
+  on('helpBack', () => { helpI--; renderHelp(-1); $('helpNext')?.focus(); $('helpClose')?.focus(); });
+  on('helpSkip', closeHelp);
+  on('helpClose', closeHelp);
+}
+function openHelp(step = 0) {
+  helpI = step; renderHelp(1);
+  $('helpOverlay').hidden = false;
+  const c = $('helpCard'); c.tabIndex = -1; c.setAttribute('role', 'dialog'); c.setAttribute('aria-modal', 'true'); c.setAttribute('aria-labelledby', 'helpTitle');
+  try { $('helpNext').focus({ preventScroll: true }); } catch (_) { /* nothing to focus */ }
+}
+function closeHelp() {
+  $('helpOverlay').hidden = true; $('helpCard').style.transform = '';
+  let first = false;
+  try { first = !localStorage.getItem(HELP_SEEN); localStorage.setItem(HELP_SEEN, '1'); } catch (_) { /* private mode: it will show again, that is fine */ }
+  if (first && !reducedMotion()) { const b = $('helpBtn'); b.classList.add('helppulse'); setTimeout(() => b.classList.remove('helppulse'), 1300); }
+}
+sheetCard($('helpOverlay'), $('helpCard'), closeHelp);
+$('helpBtn').onclick = () => openHelp(0);
+// First visit: the stepper opens once by itself.
+try { if (!localStorage.getItem(HELP_SEEN)) setTimeout(() => { if ($('walletOverlay').hidden && $('proofOverlay').hidden) openHelp(0); }, 700); } catch (_) { /* no storage: no auto-open */ }
+
 
 buildCamBar();
 $('camToggle').onclick = () => {
