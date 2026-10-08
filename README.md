@@ -12,6 +12,19 @@ Live parimutuel marble racing on Solana. Everyone watches the same race. You bac
 4. **Reveal and pay.** The seed, the finishing order and the pool go on-chain, then winners are paid from the vault. A bet that lands after betting closed is refunded.
 5. **Verify.** `node MarbleRush2D/tools/verify-round.mjs <reveal signature>` reads both memos from the chain, checks the seed against the hash, checks the commit came first, and replays the race to confirm the published order. It trusts nothing but the cluster.
 
+## Tables
+
+A **table** is one independent race loop with its own pool, set in `MarbleRush2D/server/tables.json`:
+
+| Setting | Meaning |
+|---|---|
+| `minPlayers` | wallets that must have bet for the race to run. Short of it the lobby waits one more round of the clock, then the round is **cancelled and every stake is returned** (a refund transaction, plus a `void` memo that reveals the seed). `0` = the race always runs |
+| `maxPlayers` | seats per round (default 20). A full table turns the next bettor away; spectators are not limited |
+| `bots` | `house`: labelled house stakes so a lone visitor sees a live board, capped by `botBudget`. `none`: every unit in the pool is a player's |
+| `token` | fixed token for the table; leave it out to use the default token or the current show |
+
+The shipped config has **Practice** (RUSH, house bots, the race always runs) and **Live** (3 players needed, no bots). Without house stakes a pool can only pay out what players put in, minus the 5% rake, so a Live table cannot lose money on a round. Tables **sleep** when nobody is watching: no round is sealed for an empty room, and the next visitor wakes it.
+
 ## Any token
 
 Which token a round is played in is configuration, not code. `MarbleRush2D/server/tokens.json` lists tokens (symbol, mint, decimals, stake sizes, how players get some):
@@ -19,7 +32,7 @@ Which token a round is played in is configuration, not code. `MarbleRush2D/serve
 - `"mint": "create"`: a test token the server owns. Setup creates the mint and the faucet can mint it (`RUSH`).
 - `"mint": "<address>"`: any existing token, for example Circle's devnet USDC or a partner's test token. The server holds and pays it out but cannot mint it, so players get it from that token's own faucet.
 
-Partner shows are time windows in `server/data/schedule.json`, read at the start of every round:
+Partner shows are time windows in `server/data/schedule.json`, read at the start of every round of a table that has no fixed `token` (Live, by default):
 
 ```json
 { "shows": [ { "token": "USDC", "from": "2026-10-10T15:00:00Z", "to": "2026-10-10T17:00:00Z" } ] }
@@ -44,6 +57,7 @@ Configuration (all optional):
 | `MR_PORT` | listen port (default 8090) |
 | `MR_RPC` | Solana RPC URL. Else the first line of `server/data/rpc-url.txt`, else the public devnet node |
 | `MR_AUTHORITY_KEY` | the server key as a JSON byte array, instead of `server/data/authority.json` |
+| `MR_TABLES` | path to a tables file, instead of `server/tables.json` |
 | `MR_CHAIN_DIR` | where the chain files live (default `server/data`) |
 | `MR_FEE_PAYER=player` | players pay their own fee (fallback if a wallet refuses server-paid fees) |
 | `MR_TRUST_PROXY=1` | behind a reverse proxy: take the client address from `X-Forwarded-For` |
@@ -63,8 +77,8 @@ Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, a
 ## Tests
 
 ```bash
-npm run test:e2e     # round server, wallet sign-in, security checks (no chain needed)
-npm run test:chain   # real devnet: a sealed and verified round, signed bets, refunds, payouts, a server killed mid-round (needs chain:setup and a little SOL)
+npm run test:e2e     # round server, wallet sign-in, security checks, table rules: minimum, cancel, seats, sleep (no chain needed)
+npm run test:chain   # real devnet: a sealed and verified round, signed bets, refunds, payouts, a server killed mid-round, a live round cancelled for too few players (needs chain:setup and a little SOL)
 ```
 
 `MarbleRush2D/tools/` also holds the race fairness and drama harnesses (`fairness2d.js`, `drama2d.js`) used to tune the game.

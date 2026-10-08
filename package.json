@@ -8,8 +8,8 @@
     "chain:setup": "node MarbleRush2D/tools/chain-setup.mjs",
     "build:vendor": "node MarbleRush2D/tools/build-vendor.mjs",
     "start": "node MarbleRush2D/server/server.mjs",
-    "test:e2e": "node MarbleRush2D/tools/server-e2e.mjs",
-    "test:chain": "node MarbleRush2D/tools/chain-e2e.mjs && node MarbleRush2D/tools/chain-bets-e2e.mjs && node MarbleRush2D/tools/chain-restart-e2e.mjs",
+    "test:e2e": "node MarbleRush2D/tools/server-e2e.mjs && node MarbleRush2D/tools/tables-e2e.mjs",
+    "test:chain": "node MarbleRush2D/tools/chain-e2e.mjs && node MarbleRush2D/tools/chain-bets-e2e.mjs && node MarbleRush2D/tools/chain-restart-e2e.mjs && node MarbleRush2D/tools/chain-cancel-e2e.mjs",
     "verify-round": "node MarbleRush2D/tools/verify-round.mjs",
     "dev": "node --watch MarbleRush2D/server/server.mjs"
   },

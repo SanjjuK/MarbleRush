@@ -28,7 +28,7 @@ Please report vulnerabilities privately to the maintainers (open a private secur
 ## Known limits
 
 - Dependencies: `npm audit` reports advisories in transitive packages of `@solana/web3.js` 1.x (`bigint-buffer`, `jayson`, `uuid`, `stream-json`). They matter only if the RPC endpoint is malicious; there is no non-breaking fix yet. Migrating to `@solana/kit` is on the list.
-- The house vault is custodial and pays the house bots' share of winnings from its float.
+- The house vault is custodial. On the Practice table the pool also holds labelled house stakes (capped per round by `botBudget`) and winners are paid from the float, so that table can lose up to the cap in a round; it plays the test token only. A table with `bots: none` pays out at most what its players staked, minus the rake.
 - A player who signs a bet and sends the transaction to the network themselves, instead of through us, would lose the stake into the vault without a bet being recorded.
 - No alerting: a failed payout (after six retries) is only visible in the server log.
 - Single process, in-memory state with periodic saves; not built for horizontal scaling.
