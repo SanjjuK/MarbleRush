@@ -94,6 +94,8 @@
 
   <!-- Course progress: a thin rail on the left wall of the course column, placed from renderer.courseRect().
        Event markers with names, and every marble's number on it. -->
+  <!-- Desktop race only: an empty box beside the tower, so the renderer leaves a lane for the rail's marble dots. -->
+  <div class="raillane" id="railLane" data-hud aria-hidden="true"></div>
   <div class="coursemap" id="courseMap" role="img" aria-label="Course progress">
     <div class="cm-track"><i id="cmFill"></i></div>
     <div class="cm-marks" id="cmMarks"></div>

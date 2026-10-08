@@ -386,16 +386,26 @@ const EVENT_KIND = {
   whitehole: 'warp', greyhole: 'grey', gatehouse: 'gate', mempool: 'pool',
 };
 
-/** Rail geometry, set from the renderer's course column. The rail is hidden on phones (S6 rebuilds it there). */
+/**
+ * Rail geometry, set from the renderer's course column. The line sits in the course's off-track margin (left of
+ * the wall at WALL_L) and the marble dots hang off its LEFT side, so neither covers the track: on desktop in the
+ * lane #railLane keeps clear beside the tower, on a phone in the margin itself.
+ */
 let cmMarkers = [], cmH = 0, cmLast = '', leadFrac = 0;
-const RAIL_BOTTOM_RESERVE = 96;    // keeps the rail clear of the camera bar
+const phoneLayout = () => window.matchMedia('(max-width: 900px)').matches;
 
 function layoutRail() {
   const el = $('courseMap');
   if (!el || !renderer || !renderer.safe) return;
-  const r = renderer.courseRect();
-  const top = r.y + 24, bottom = Math.min(r.y + r.h, window.innerHeight) - (document.body.classList.contains('race-on') ? RAIL_BOTTOM_RESERVE : 40);
-  el.style.left = `${Math.round(r.x + 14)}px`;
+  const r = renderer.courseRect(), phone = phoneLayout();
+  let top = r.y + 24, bottom = Math.min(r.y + r.h, window.innerHeight) - 40;
+  if (document.body.classList.contains('race-on')) {
+    // Clear of the camera bar below and, on a phone, the classification strip above (it floats over the course).
+    const cam = $('camBar').getBoundingClientRect();
+    if (cam.height && cam.top > top) bottom = Math.min(bottom, cam.top - 12);
+    if (phone) { const st = $('standingsPanel').getBoundingClientRect(); if (st.height) top = Math.max(top, st.bottom + 16); }
+  }
+  el.style.left = `${Math.round(r.x + (phone ? 17 : 4))}px`;
   el.style.top = `${Math.round(top)}px`;
   el.style.height = `${Math.max(120, Math.round(bottom - top))}px`;
   cmH = el.clientHeight;
@@ -441,30 +451,17 @@ function renderCourseMap() {
   }
   if (!cmH) return;                                   // hidden (phones) or not laid out yet
 
-  const mine = betting.placed ? betting.selected : -1;
-  const dot = (i, out) => `<span class="dt${out ? ' out' : ''}${i === mine ? ' mine' : ''}" style="--c:${MARBLE_DATA[i].hex}">${i + 1}</span>`;
-  // Marbles closer than 26px on the rail share one chip, leader first, like the design's field chip.
-  const groups = [];
-  for (const x of live) {
-    const g = groups[groups.length - 1];
-    if (g && (g[0].f - x.f) * cmH < 26) g.push(x); else groups.push([x]);
-  }
-  const top = (f) => Math.round(f * cmH - 15);
-  let html = groups.map(g => `<div class="chip" style="top:${top(g[0].f)}px"><span class="pc">${Math.round(g[0].f * 100)}%</span>${g.map(x => dot(x.m.index, false)).join('')}</div>`).join('');
-  const outs = engine.marbles.filter(m => m.out).map(m => ({ m, f: courseFrac(m) })).sort((a, b) => b.f - a.f);
-  const outGroups = [];
-  for (const x of outs) {
-    const g = outGroups[outGroups.length - 1];
-    if (g && (g[0].f - x.f) * cmH < 26) g.push(x); else outGroups.push([x]);
-  }
-  html += outGroups.map(g => `<div class="chip out" style="top:${top(g[0].f)}px">${g.map(x => dot(x.m.index, true)).join('')}<span class="oo">OUT</span></div>`).join('');
-  // Labels under a chip step aside, so a name is never half hidden behind marbles.
-  const boxes = [...groups.map(g => g[0].f * cmH), ...outGroups.map(g => g[0].f * cmH)];
-  for (const k of cmMarkers) {
-    if (!k.label) continue;
-    const y = k.f * cmH, under = boxes.some(b => Math.abs(b - y) < 22);
-    if (under !== k.under) { k.under = under; k.el.classList.toggle('under', under); }
-  }
+  // One numbered dot per marble, left of the line, plus a tick ON the line at its true place. Dots closer than
+  // a dot's height are pushed apart (down, then back up from the bottom), so a bunched field reads as a column.
+  const mine = betting.placed ? betting.selected : -1, sp = phoneLayout() ? 16 : 22;
+  const all = engine.marbles.map(m => ({ m, y: courseFrac(m) * cmH })).sort((a, b) => a.y - b.y || a.m.index - b.m.index);
+  all.forEach((d, i) => { d.ry = i ? Math.max(d.y, all[i - 1].ry + sp) : d.y; });
+  for (let i = all.length - 1; i >= 0; i--) all[i].ry = Math.min(all[i].ry, i < all.length - 1 ? all[i + 1].ry - sp : cmH);
+  const html = all.map(({ m, y, ry }) => {
+    const cls = `${m.out ? ' out' : ''}${m.index === mine ? ' mine' : ''}`, c = MARBLE_DATA[m.index].hex;
+    return `<i class="tk${cls}" style="top:${Math.round(y)}px;--c:${c}"></i>`
+      + `<span class="dt${cls}" style="top:${Math.round(ry)}px;--c:${c}" title="${esc(MARBLE_DATA[m.index].name)}${m.out ? ', out' : ''}">${m.index + 1}</span>`;
+  }).join('');
   if (html !== cmLast) { cmLast = html; $('cmDots').innerHTML = html; }
 }
 

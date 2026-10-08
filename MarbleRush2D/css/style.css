@@ -45,7 +45,7 @@
      backdrop-filter panels may be on screen (topbar, tower, market). */
   --panel: color-mix(in srgb, var(--surface-1) 94%, transparent);
   --rail-w: 340px;
-  --tower-w: 320px;
+  --tower-w: 288px;
   --top-h: 64px;
   color-scheme: dark;
 }
@@ -296,9 +296,13 @@ body.net.guest .wallet { display: none; }
 @keyframes gain { 0% { background: rgba(67,201,139,0.45); } 100% { } }
 @keyframes loss { 0% { background: rgba(224,86,77,0.35); } 100% { } }
 
-/* Course progress: a thin rail on the course column's left wall. JS places it (layoutRail) from
-   renderer.courseRect(). Named events, passed ones filled; the field's marbles ride it as numbered chips. */
+/* Course progress: a thin rail in the course column's off-track margin. JS places it (layoutRail) from
+   renderer.courseRect(). Named events to the right, passed ones filled; the marbles as numbered dots to the left. */
+:root { --lane-w: 32px; }
+.raillane { display: none; position: fixed; left: calc(12px + var(--tower-w) + 4px); top: calc(var(--top-h) + 24px); width: var(--lane-w); height: 160px; pointer-events: none; }
+body.race-on .raillane { display: block; }
 .coursemap { position: fixed; z-index: 8; width: 0; pointer-events: none; }
+body:not(.race-on) .cm-dots { display: none; }
 .cm-track { position: absolute; left: -1.5px; top: 0; bottom: 0; width: 3px; border-radius: var(--r-hair); background: var(--line-strong); }
 .cm-track i { position: absolute; left: 0; top: 0; width: 100%; height: 0; background: var(--text-1); border-radius: var(--r-hair); }
 .cm-marks .mk { position: absolute; left: 0; height: 0; }
@@ -315,19 +319,15 @@ body.net.guest .wallet { display: none; }
 }
 .cm-marks .mk.passed b { color: var(--text-1); }
 .cm-marks .mk.under b { opacity: 0; }
-.cm-dots .chip {
-  position: absolute; left: 10px; height: 30px; display: flex; align-items: center; gap: var(--s-half); padding: 0 var(--s1); border-radius: var(--r-pill);
-  background: var(--surface-2); border: 1px solid var(--line-strong); white-space: nowrap;
-}
-.cm-dots .chip::before { content: ''; position: absolute; left: -10px; top: 50%; width: 10px; height: 1px; background: var(--text-2); }
-.cm-dots .pc { font: 700 var(--fs-xs) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-1); padding-right: var(--s-half); }
+.cm-dots .tk { position: absolute; left: -4px; width: 8px; height: 2px; margin-top: -1px; border-radius: 1px; background: var(--c); }
+.cm-dots .tk.out { background: var(--text-3); }
+.cm-dots .dt { position: absolute; left: -26px; margin-top: -10px; }
 .cm-dots .dt, .tok {
   width: 20px; height: 20px; flex: none; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--c); background: var(--bg);
   display: inline-flex; align-items: center; justify-content: center; font: 700 var(--fs-xs) var(--font-data); color: var(--text-1);
 }
 .cm-dots .dt.mine { box-shadow: 0 0 0 2px var(--accent); }
 .cm-dots .dt.out { border-style: dashed; color: var(--text-2); }
-.cm-dots .oo { font: 700 var(--fs-xs) var(--font-data); letter-spacing: .1em; color: var(--text-2); }
 
 /* A racer's marble, anywhere in the HUD: a glass sphere in its colour (the
    course's own, from MARBLE_DATA), a soft highlight, an inner shade, NO rim. */
@@ -783,7 +783,7 @@ body.paid .topbar .clock { visibility: hidden; }
 .podium .pd b { font: 700 var(--fs-md) var(--font-data); letter-spacing: .08em; }
 .podium .pd .t { margin-left: auto; font: 600 var(--fs-md) var(--font-data); font-variant-numeric: tabular-nums; color: var(--text-2); }
 
-.resleft { position: absolute; left: 12px; top: calc(var(--top-h) + 24px); width: 320px; display: flex; flex-direction: column; gap: var(--s2); }
+.resleft { position: absolute; left: 12px; top: calc(var(--top-h) + 24px); width: calc(var(--tower-w) + 4px + var(--lane-w)); display: flex; flex-direction: column; gap: var(--s2); }
 .finalpanel { padding: var(--s2); border-radius: var(--r-lg); display: flex; flex-direction: column; gap: var(--s1); background: var(--glass); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
 .fo-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 var(--s1); }
 .fo-head b { font: 700 var(--fs-sm) var(--font-data); letter-spacing: .2em; color: var(--text-1); }
@@ -1070,7 +1070,16 @@ body.paid .topbar .clock { visibility: hidden; }
   .tower-rows li .gap { height: auto; min-width: 0; padding: 0; border: 0; font-size: var(--fs-xs); line-height: 1.3; justify-content: flex-start; color: var(--text-2); }
   .tower-rows li .gap.lead { font-size: var(--fs-xs); letter-spacing: .06em; }
   .tower-rows li.mine .tk, .tower-rows li.mine .gap { color: var(--text-1); }
-  .coursemap { display: none; }
+  /* The rail on a phone: in the off-track margin left of the wall, small dots, no labels (the strip names the order). */
+  .raillane { display: none !important; }
+  body:not(.race-on) .coursemap, body.results .coursemap { display: none; }
+  .coursemap { z-index: 7; }
+  .cm-track { width: 2px; left: -1px; }
+  .cm-marks .mk b { display: none; }
+  .cm-marks .mk i { left: -4px; top: -4px; width: 8px; height: 8px; border-width: 1.5px; }
+  .cm-dots .dt { left: -17px; width: 14px; height: 14px; margin-top: -7px; border-width: 1.5px; font-size: 9px; }
+  .cm-dots .dt.mine { box-shadow: 0 0 0 1.5px var(--accent); }
+  .cm-dots .tk { left: -3px; width: 6px; }
 
   /* Race control drops under the strip. */
   .banner {
@@ -1330,6 +1339,7 @@ body.reconnecting :is(.tower, .rail, .leftcol, .resstack, .cambar, .results) { o
 
 /* Short landscape phones (844x390): the strip and the camera chips step out to the sides so the course column in the middle stays clear. */
 @media (max-width: 900px) and (max-height: 500px) {
+  .coursemap { display: none !important; }
   .tower { right: auto; left: var(--s1); width: 120px; top: calc(12px + var(--top-h) + var(--s1)); }
   .tower-rows { grid-template-columns: 1fr; }
   .tower-rows li { padding: 3px var(--s1); }
