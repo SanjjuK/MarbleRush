@@ -1327,3 +1327,17 @@ body.reconnecting :is(.tower, .rail, .leftcol, .resstack, .cambar, .results) { o
 .skel i:first-child { width: 28px; } .skel i:last-child { flex: 1; max-width: 55%; }
 @media (prefers-reduced-motion: reduce) { .skel i, .connbar .spin, .connbar { animation: none; } }
 @media (max-width: 900px) { .connbar { top: calc(12px + var(--top-h) + 4px); max-width: calc(100vw - 24px); } .connbar .sub { display: none; } }
+
+/* Short landscape phones (844x390): the strip and the camera chips step out to the sides so the course column in the middle stays clear. */
+@media (max-width: 900px) and (max-height: 500px) {
+  .tower { right: auto; left: var(--s1); width: 120px; top: calc(12px + var(--top-h) + var(--s1)); }
+  .tower-rows { grid-template-columns: 1fr; }
+  .tower-rows li { padding: 3px var(--s1); }
+  .cambar { left: auto; right: var(--s1); width: 248px; top: calc(12px + var(--top-h) + var(--s1)); bottom: auto; }
+  .banner { top: calc(12px + var(--top-h) + var(--s1)); }
+}
+
+/* Reduced motion, the rest: row flashes, the race banner's drop and the win burst hold still (the state still reads from text and colour). */
+@media (prefers-reduced-motion: reduce) {
+  .tower-rows li.gain, .tower-rows li.loss, .runners li .win.up, .runners li .win.down, .banner, .burst i { animation: none !important; }
+}
