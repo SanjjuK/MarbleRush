@@ -64,6 +64,7 @@ export class RemoteBetting {
     this._retry = 0;
     fetch('/api/chain').then(r => r.json()).then(i => { for (const t of i.tokens) this.tokenMeta[t.symbol] = t; this.cluster = i.cluster; this.on.changed?.(); }).catch(() => {});
     this.offsets = [];              // server clock minus ours, per message
+    this.refreshTables();           // the tour and the picker read the table list
     this.connect();
   }
 

@@ -623,7 +623,7 @@ const BANNER_WORD = { out: 'KNOCKOUT', warp: 'WARP', back: 'INCIDENT', bridge: '
 function announce(html, kind = '', secs = 3.2) {
   const el = $('banner');
   el.className = `banner ${kind}`;
-  el.dataset.k = '';
+  el.dataset.k = ''; el.style.top = '';
   // RACE CONTROL | KNOCKOUT · Royal swallowed
   el.innerHTML = (BANNER_WORD[kind] ? `<span class="bk">${BANNER_WORD[kind]}</span><span class="sep">·</span>` : '') + html;
   el.hidden = false;
@@ -2192,6 +2192,9 @@ function onNetNotice(d) {
   const secs = d.kind === 'cancelled' && d.reopensAt ? Math.min(12, Math.max(4, (d.reopensAt - betting.now()) / 1000)) : 5;
   announce(`<span class="msg">${esc(d.message)}</span>`, 'table', secs);
   $('banner').dataset.k = d.kind;
+  // During betting the clock ring hangs where the banner normally sits: put the notice just below it.
+  const below = Math.max($('lobby').getBoundingClientRect().bottom, $('mProof').getBoundingClientRect().bottom);
+  if (below > 0 && phase === PHASE.BETTING) $('banner').style.top = `${Math.round(below + 10)}px`;
   lobbyShown = -1; dockLast = '';
   renderBetButton();
 }
@@ -2335,21 +2338,28 @@ const helpArt = {
   clock: () => `<div class="hart clock" aria-hidden="true"><div class="hring"><b>0:30</b></div><span class="hchip">One bet · locked once sent</span></div>`,
   tiles: () => `<div class="hart" aria-hidden="true"><div class="htiles"><div class="htile">Opener</div><div class="htile">Run-in</div><div class="htile">Mempool <em>OUT</em></div></div></div>`,
   pool: () => `<div class="hart" aria-hidden="true"><div class="hpool"><div class="strip"><span class="rk">5%</span><span class="p1">1ST 75%</span><span class="p2">2ND 25%</span></div><div class="cap"><span>Rake</span><span>Backers of first</span><span>Second</span></div></div></div>`,
+  tables: () => `<div class="hart" aria-hidden="true"><div class="htiles"><div class="htile">Practice<em>ALWAYS RACES</em></div><div class="htile">Live<em>NEEDS ${tableMin()} PLAYERS</em></div><div class="htile">Live 2<em>OPENS WHEN FULL</em></div></div></div>`,
   flow: () => `<div class="hart" aria-hidden="true"><div class="hflow"><span>SEAL</span><i></i><span>RACE</span><i></i><span>REVEAL</span></div></div>`,
 };
+/** The smallest field a table with a minimum asks for (Live's), from the server's table list; 3 until it has been read. */
+const tableMin = () => (betting.tables.find(t => t.minPlayers) || { minPlayers: 3 }).minPlayers;
 function poolExample() {
   const live = betting.totalPool > 0, pool = live ? betting.totalPool : 1000, net = pool * (1 - RAKE);
   const pays = `${fmtAmount(net * PLACE_SHARES[0])} to backers of first and ${fmtAmount(net * PLACE_SHARES[1])} to backers of second, each split by stake`;
   return live ? `This round's pool of ${fmtA(pool)} ${betting.currency} would pay ${pays}.` : `Example: a pool of ${fmtA(pool)} pays ${pays}.`;
 }
-const HELP_STEPS = [
+const HELP_ALL = [
   { t: 'Back a marble', art: 'bars', p: () => 'Pick one of five. The odds move like a tote board as money arrives, so the price you see is live until the clock ends.' },
-  { t: 'Beat the clock', art: 'clock', p: () => 'Betting runs on a 30 second clock and the gates open when it ends. One bet per round: change your marble and stake until you press Bet, then it is locked once sent. Miss the clock and you watch this race and join the next.' },
+  { t: 'Beat the clock', art: 'clock', p: () => 'Betting runs on a 30 second clock and closes 4 seconds before the gates open. One bet per round: change your marble and stake until you press Bet, then it is locked once sent. Miss the clock and you watch this race and join the next.' },
+  { t: 'Pick a table', art: 'tables', net: true, p: () => `Everyone at a table watches the same race and shares one pool. Practice always races, with labelled house stakes. Live needs ${tableMin()} players, or the round is cancelled and every stake goes back to your wallet. A full table sends you to the next one. The chip beside the round number switches tables.` },
   { t: 'Every course is new', art: 'tiles', p: () => 'Each race is built fresh from over a hundred sections, about 3 to 4 minutes long. Machines are toughest on whoever reaches them first and chaos hits everyone alike. Knockouts are rare, at most two a race, so both paid places always go to finishers.' },
-  { t: 'Top two are paid', art: 'pool', p: () => `After a ${Math.round(RAKE * 100)}% rake, 75% of the pool goes to backers of first place and 25% to backers of second. A heavily backed marble pays less even when it wins.`, ex: poolExample },
+  { t: 'Top two are paid', art: 'pool', p: () => `After a ${Math.round(RAKE * 100)}% rake, 75% of your table's pool goes to backers of first place and 25% to backers of second. A heavily backed marble pays less even when it wins.`, ex: poolExample },
   { t: 'Provably fair', art: 'flow', p: () => 'Every round is fixed by a hash before betting opens and revealed after the race, so anyone can replay it. On devnet rounds that hash is sealed on Solana.', note: true },
 ];
+/** The tour: the table step only on a page served by the round server (the local demo has no tables). */
+const helpSteps = () => HELP_ALL.filter(s => !s.net || NET);
 function renderHelp(dir) {
+  const HELP_STEPS = helpSteps();
   const st = HELP_STEPS[helpI], last = helpI === HELP_STEPS.length - 1;
   $('helpCard').innerHTML = GRAB +
     `<div class="hmeta"><p class="wlabel">${helpI + 1} of ${HELP_STEPS.length}</p>${last ? '' : '<button type="button" class="hskip" id="helpSkip">Skip</button>'}</div>` +
@@ -2380,7 +2390,7 @@ function closeHelp() {
 sheetCard($('helpOverlay'), $('helpCard'), closeHelp);
 $('helpBtn').onclick = () => openHelp(0);
 // First visit: the stepper opens once by itself.
-try { if (!localStorage.getItem(HELP_SEEN)) setTimeout(() => { if ($('walletOverlay').hidden && $('proofOverlay').hidden) openHelp(0); }, 700); } catch (_) { /* no storage: no auto-open */ }
+try { if (!localStorage.getItem(HELP_SEEN)) setTimeout(() => { if ($('walletOverlay').hidden && $('proofOverlay').hidden && $('tableOverlay').hidden) openHelp(0); }, 700); } catch (_) { /* no storage: no auto-open */ }
 
 
 buildCamBar();
