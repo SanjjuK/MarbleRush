@@ -154,22 +154,79 @@ body.racing .live { display: inline-block; }
 .walletbtn.out:hover { background: var(--accent); filter: brightness(1.08); }
 body.net .walletbtn { display: inline-flex; }
 body.net.guest .wallet { display: none; }
+/* ---- the wallet card (W1 to W5): centred on desktop, a bottom sheet on phones ---- */
+#walletOverlay { background: var(--scrim); }
+#walletCard { width: min(440px, 100%); padding: var(--s3); border-radius: var(--r-xl); background: var(--surface-1); border: 1px solid var(--line-strong); outline: 0; }
+#walletCard .whandle { display: none; }
+#walletCard .wtitle { margin: 0 0 var(--s1); font: 600 var(--fs-lg) var(--font-ui); letter-spacing: -.01em; }
+#walletCard .wnote { margin: 0 0 var(--s1); font: 400 var(--fs-sm)/1.5 var(--font-ui); color: var(--text-2); }
+#walletCard .wnote.dim { color: var(--text-3); }
+#walletCard .wlabel { margin: var(--s2) 0 var(--s1); font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+#walletCard .wlabel:first-child { margin-top: 0; }
+.wlist { display: flex; flex-direction: column; gap: var(--s1); margin: var(--s2) 0 var(--s1); }
 .walletopt {
-  display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: var(--s7); padding: 0 var(--s2); margin: 0 0 var(--s1);
-  border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface-2);
+  display: flex; align-items: center; gap: var(--s2); width: 100%; min-height: var(--s7); padding: 0 var(--s2); margin: 0; box-sizing: border-box;
+  border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface-2); text-decoration: none;
   color: var(--text-1); font: 600 var(--fs-md) var(--font-ui); cursor: pointer; transition: background .15s;
 }
 .walletopt:hover { background: var(--surface-3); }
-.walletopt small { color: var(--muted); font-weight: 500; }
-.walletaddr { display: block; margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius-s); background: var(--surface-2);
-  font: 600 12px var(--mono); word-break: break-all; color: var(--text); }
-.tokrow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--stroke); }
-.tokrow .sym { font: 600 var(--fs-md) var(--font-ui); display: flex; flex-direction: column; line-height: 1.2; }
-.tokrow .sym small { font-weight: 500; font-size: 11px; color: var(--muted); }
-.tokrow .bal { font: 600 var(--fs-lg) var(--data); font-variant-numeric: tabular-nums; }
-.tokrow .get { width: auto; min-height: var(--tap); margin: 0; padding: 0 var(--s2); font-size: var(--fs-sm); text-decoration: none; display: inline-flex; align-items: center; }
+.walletopt:disabled { opacity: .6; cursor: default; }
+.walletopt .wn { flex: 1; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; text-align: left; }
+.walletopt small { color: var(--text-3); font: 500 var(--fs-sm) var(--font-ui); }
+.walletopt .chev { flex: none; fill: none; stroke: var(--text-2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.walletopt .inst { font: 600 var(--fs-sm) var(--font-ui); color: var(--text-1); text-decoration: underline; text-underline-offset: 3px; }
+.wg { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); box-shadow: 0 0 0 1px var(--line-strong) inset; font: 700 var(--fs-md) var(--font-data); color: var(--text-1); }
+.wlink { display: block; width: 100%; min-height: var(--tap); margin-top: var(--s-half); border: 0; background: transparent; color: var(--text-2); font: 600 var(--fs-md) var(--font-ui); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.wlink:hover { color: var(--text-1); }
+.wbtn { display: flex; align-items: center; justify-content: center; gap: var(--s1); width: 100%; min-height: var(--s6); padding: 0 var(--s2); margin-top: var(--s1); box-sizing: border-box;
+  border: 0; border-radius: var(--r-pill); background: var(--accent); color: var(--accent-ink); font: 600 var(--fs-md) var(--font-ui); text-decoration: none; cursor: pointer; }
+.wbtn:hover { filter: brightness(1.08); }
+.wbtn.ghost { background: transparent; color: var(--text-1); box-shadow: 0 0 0 1px var(--line-strong) inset; }
+.wbtn.ghost:hover { background: var(--surface-2); filter: none; }
+.wbtn.sm { width: auto; flex: none; min-height: var(--tap); margin: 0; padding: 0 var(--s2); font-size: var(--fs-sm); white-space: nowrap; }
+.wbtn.busy { background: var(--surface-3); color: var(--text-2); cursor: default; box-shadow: 0 0 0 1px var(--line) inset; }
+.wbtn svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.wstate { display: flex; flex-direction: column; align-items: center; text-align: center; padding: var(--s2) 0 var(--s1); }
+.wstate .wnote { max-width: 32ch; }
+.wspin { position: relative; width: 64px; height: 64px; display: grid; place-items: center; margin-bottom: var(--s2); }
+.wspin .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: mr-spin 1s linear infinite; }
+.wtag { margin: var(--s-half) 0 var(--s1); font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
+.wbang { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; margin-bottom: var(--s1); border: 2px solid var(--text-2); font: 700 var(--fs-xl) var(--font-data); color: var(--text-1); }
+.waddr { display: flex; align-items: center; gap: var(--s1); }
+.waddr code { font: 600 var(--fs-lg) ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; color: var(--text-1); }
+.wcopy { display: inline-flex; align-items: center; justify-content: center; gap: var(--s1); }
+.wcopy.head { width: var(--tap); height: var(--tap); padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-2); cursor: pointer; }
+.wcopy.head:hover { background: var(--surface-2); color: var(--text-1); }
+.wcopy svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.wcopy.done { color: var(--text-1); }
+.wcopy.foot { display: none; }
+.devnet { margin-left: auto; height: 24px; padding: 0 var(--s1); display: inline-flex; align-items: center; border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .16em; color: var(--text-2); }
+.wtokens { display: flex; flex-direction: column; gap: var(--s1); }
+.tokgrp { border-radius: var(--r-md); background: var(--surface-1); border: 1px solid var(--line); overflow: hidden; }
+.tokrow { display: flex; align-items: center; gap: var(--s2); min-height: var(--s7); padding: 0 var(--s2); }
+.tokrow .sym { flex: 1; display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.tokrow .symt { display: flex; align-items: center; gap: var(--s1); font: 600 var(--fs-md) var(--font-ui); }
+.tokrow .sym small { font: 500 var(--fs-sm) var(--font-ui); color: var(--text-3); }
+.tokrow .bal { font: 600 var(--fs-xl) var(--font-data); font-variant-numeric: tabular-nums; }
+.wtag2 { font-style: normal; height: 20px; padding: 0 6px; display: inline-flex; align-items: center; border-radius: var(--r-xs); background: var(--surface-3); color: var(--text-2); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .12em; }
+.wtag2.low { background: transparent; box-shadow: 0 0 0 1px var(--text-2) inset; color: var(--text-1); }
+.faucet { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); border-top: 1px dashed var(--line-strong); background: var(--surface-2); }
+.faucet[hidden] { display: none; }
+.faucet .ftxt { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.faucet .ftxt b { font: 700 var(--fs-xs) var(--font-data); letter-spacing: .12em; color: var(--text-2); }
+.faucet .ftxt b em { font-style: normal; color: var(--text-1); }
+.faucet .ftxt small { font: 400 var(--fs-sm)/1.4 var(--font-ui); color: var(--text-2); }
+.faucet .ftxt small a { color: var(--text-1); }
+.faucet .fgot, .faucet .fnext { flex: none; font: 600 var(--fs-md) var(--font-data); font-variant-numeric: tabular-nums; }
+.faucet[data-s="success"] { border-top-style: solid; }
+.faucet[data-s="failed"] { border-top: 1px solid var(--text-2); }
+.faucet .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--text-1); animation: mr-spin 1s linear infinite; }
+.wfoot { display: flex; gap: var(--s1); margin-top: var(--s2); }
+.wfoot .wbtn { margin-top: 0; }
+.walleterr { color: var(--text-1); font-size: var(--fs-sm); margin: var(--s1) 0 0; min-height: 0; }
+.walleterr:empty { display: none; }
 .walleterr a { color: var(--text-1); }
-.walleterr { color: var(--text-1); font-size: var(--fs-sm); margin: 4px 0 10px; min-height: 1em; }
+@media (prefers-reduced-motion: reduce) { .wspin .ring, .faucet .spin { animation: none; } }
 .iconbtn {
   width: var(--tap); height: var(--tap); border-radius: 50%; border: 1px solid var(--line-strong);
   background: var(--surface-2); font: 600 var(--fs-md) var(--font-ui); cursor: pointer; transition: background .15s; flex: none;
@@ -1162,3 +1219,19 @@ body.paid .topbar .clock { visibility: hidden; }
 
 /* Results hide the tower on phones too (the mobile rule that shows it while racing has the same weight, so this one is stronger). */
 body.results.race-on .tower { display: none; }
+
+/* The wallet card as a bottom sheet (W1b to W5b): controls in the thumb zone, close by dragging the handle or tapping the scrim. */
+@media (max-width: 900px) {
+  #walletOverlay { place-items: end center; padding: 0; }
+  #walletCard { width: 100%; max-height: calc(100dvh - 72px); padding: 0 var(--s2) calc(var(--s2) + var(--safe-b)); border-radius: var(--r-xl) var(--r-xl) 0 0; border-bottom: 0;
+    animation: wsheet .28s cubic-bezier(.2, .8, .2, 1); transition: transform .2s; }
+  #walletCard.dragging { transition: none; }
+  #walletCard .whandle { display: flex; justify-content: center; align-items: center; height: var(--tap); margin: 0 calc(-1 * var(--s2)); touch-action: none; cursor: grab; }
+  #walletCard .whandle i { width: 40px; height: 4px; border-radius: var(--r-pill); background: var(--line-strong); }
+  .wcopy.head { display: none; }
+  .wcopy.foot { display: inline-flex; }
+  .wfoot .wbtn { flex: 1; }
+  .walletopt { min-height: var(--s7); }
+}
+@keyframes wsheet { from { transform: translateY(40px); opacity: 0; } }
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) { #walletCard { animation: none; } }

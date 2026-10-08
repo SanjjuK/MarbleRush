@@ -20,6 +20,7 @@ export function walletProviders() {
 export const WALLET_LINKS = [
   { name: 'Phantom', url: 'https://phantom.com/download' },
   { name: 'Solflare', url: 'https://solflare.com/download' },
+  { name: 'Backpack', url: 'https://backpack.app/download' },
 ];
 
 const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));

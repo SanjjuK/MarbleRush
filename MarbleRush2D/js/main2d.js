@@ -1862,69 +1862,225 @@ function renderAccount() {
 
 const explorer = (sig, cluster) => `https://explorer.solana.com/tx/${sig}${cluster && cluster !== 'mainnet-beta' ? `?cluster=${cluster}` : ''}`;
 
-/** Each token a round can be played in: the wallet's real balance, and how to get some. */
-async function loadTokenRows() {
-  const box = $('walletTokens');
-  const info = await fetch('/api/chain').then(r => r.json()).catch(() => null);
-  if (!box || !info || !info.tokens.length) { if (box) box.innerHTML = ''; return; }
-  box.innerHTML = info.tokens.map(t =>
-    `<div class="tokrow" data-t="${t.symbol}"><span class="sym">${t.symbol}<small>${t.name}</small></span>` +
-    `<b class="bal">…</b>` +
-    (t.faucet.mode === 'mint' ? `<button class="walletopt get" data-get="${t.symbol}">Get test ${t.symbol}</button>`
-      : t.faucet.url ? `<a class="walletopt get" href="${t.faucet.url}" target="_blank" rel="noopener noreferrer">Get test ${t.symbol}</a>` : '') +
-    `</div>`).join('');
-  const setBal = async (sym) => {
-    const row = box.querySelector(`[data-t="${sym}"] .bal`);
-    const r = await fetch(`/api/balance?token=${sym}`).then(x => x.json()).catch(() => ({}));
-    if (row) row.textContent = r.balance === undefined ? '-' : fmtAmount(r.balance);
-  };
-  for (const t of info.tokens) setBal(t.symbol);
-  for (const btn of box.querySelectorAll('[data-get]')) {
-    btn.onclick = async () => {
-      btn.disabled = true; $('walletErr').textContent = '';
-      const r = await fetch('/api/faucet', { method: 'POST', body: JSON.stringify({ token: btn.dataset.get }) });
-      const d = await r.json().catch(() => ({}));
-      if (r.ok) $('walletErr').innerHTML = `<span style="color:var(--good)">Sent ${fmtAmount(d.amount)} ${d.symbol}.</span> <a href="${explorer(d.signature, info.cluster)}" target="_blank" rel="noopener noreferrer">View transaction</a>`;
-      else $('walletErr').textContent = d.retryInMs ? `Next ${btn.dataset.get} drop in ${Math.ceil(d.retryInMs / 3600000)}h` : (d.error || 'Faucet failed');
-      btn.disabled = false;
-      setBal(btn.dataset.get);
-    };
+/* ---- the wallet card (frames W1 to W5): one card, four views: connect, connecting, failed, account ---- */
+
+const WALLETS = [['phantom', 'Phantom'], ['solflare', 'Solflare'], ['backpack', 'Backpack']];
+const SVG_CHEV = '<svg class="chev" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+const SVG_COPY = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="3"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+const glyph = (s) => `<span class="wg" aria-hidden="true">${String(s).slice(0, 1).toUpperCase()}</span>`;
+const GRAB = '<div class="whandle" id="walletGrab" aria-hidden="true"><i></i></div>';
+
+let walletTimers = [];                 // timeouts and intervals that belong to the open card
+let walletTry = 0;                     // bumped on every new attempt, cancel and close: a late answer from an old attempt is ignored
+function clearWalletTimers() { for (const t of walletTimers) { clearTimeout(t); clearInterval(t); } walletTimers = []; }
+function closeWallet() { clearWalletTimers(); walletTry++; $('walletOverlay').hidden = true; $('walletCard').style.transform = ''; }
+
+function walletShow(html, focusSel) {
+  clearWalletTimers();
+  const card = $('walletCard');
+  card.innerHTML = GRAB + html;
+  card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true'); card.setAttribute('aria-labelledby', 'walletTitle');
+  $('walletOverlay').hidden = false;
+  const f = (focusSel && card.querySelector(focusSel)) || card;
+  card.tabIndex = -1;
+  try { f.focus({ preventScroll: true }); } catch (_) { /* nothing to focus */ }
+}
+
+/** W1: signed out. Detected wallets are buttons, the others point to the install page. */
+function walletConnectView() {
+  const found = walletProviders();
+  const rows = WALLETS.map(([id, name]) => {
+    const w = found.find(x => x.id === id);
+    if (w) return `<button type="button" class="walletopt" data-w="${id}">${glyph(name)}<span class="wn">${name}<small>Detected</small></span>${SVG_CHEV}</button>`;
+    const l = WALLET_LINKS.find(x => x.name === name);
+    return l ? `<a class="walletopt" href="${l.url}" target="_blank" rel="noopener noreferrer">${glyph(name)}<span class="wn">${name}<small>Not installed</small></span><b class="inst">Install ↗</b></a>` : '';
+  }).join('');
+  walletShow(
+    `<h2 class="wtitle" id="walletTitle">Connect a wallet to play</h2>` +
+    `<p class="wnote">Sign a free message to play. It sends no transaction, costs no fee and gives us no access to your funds.</p>` +
+    `<p class="wnote dim">Players never need SOL: bets are signed token transfers.</p>` +
+    `<div class="wlist">${rows}</div>` +
+    (found.length ? '' : `<p class="wnote dim">No wallet found in this browser. Install one, then reload this page.</p>`) +
+    `<p class="walleterr" id="walletErr" role="status"></p>` +
+    `<button type="button" id="walletClose" class="wlink">Watch without a wallet</button>` + appearanceRow(), '.walletopt');
+  $('walletClose').onclick = closeWallet;
+  for (const btn of $('walletCard').querySelectorAll('[data-w]')) btn.onclick = () => walletConnect(btn.dataset.w);
+}
+
+/** W2: waiting on the wallet popup. The popup cannot be aborted from here; Cancel just stops listening. */
+function walletConnectingView(name, id) {
+  walletShow(
+    `<div class="wstate" role="status"><div class="wspin"><i class="ring"></i>${glyph(name)}</div>` +
+    `<h2 class="wtitle" id="walletTitle">Connecting to ${name}</h2><b class="wtag">Waiting for approval</b>` +
+    `<p class="wnote">Approve the connection in the ${name} window. MarbleRush only sees your address.</p></div>` +
+    `<p class="walleterr" id="walletErr"></p><button type="button" id="walletCancel" class="wbtn ghost">Cancel</button>`, '#walletCancel');
+  $('walletCancel').onclick = () => { walletTry++; walletConnectView(); };
+}
+
+/** W3: refused, no response, or the wallet is not there. Never red: the label and the glyph carry it. */
+function walletFailedView({ id, name, title, text, install }) {
+  walletShow(
+    `<div class="wstate"><span class="wbang" aria-hidden="true">!</span><b class="wtag">NOT CONNECTED</b>` +
+    `<h2 class="wtitle" id="walletTitle">${esc(title)}</h2><p class="wnote" id="walletErr" role="status">${esc(text)}</p></div>` +
+    (install ? `<a class="wbtn" href="${install}" target="_blank" rel="noopener noreferrer">Install ${esc(name)} ↗</a>` : '') +
+    `<button type="button" id="walletRetry" class="wbtn${install ? ' ghost' : ''}">Try again</button>` +
+    `<button type="button" id="walletOther" class="wbtn ghost">Choose another wallet</button>`, install ? 'a.wbtn' : '#walletRetry');
+  $('walletRetry').onclick = () => (id ? walletConnect(id) : walletConnectView());
+  $('walletOther').onclick = walletConnectView;
+}
+
+async function walletConnect(id) {
+  const name = (WALLETS.find(([i]) => i === id) || [id, 'your wallet'])[1];
+  const w = walletProviders().find(x => x.id === id);
+  if (!w) {
+    const l = WALLET_LINKS.find(x => x.name === name);
+    walletFailedView({ id, name, title: `${name} not found`, text: `No ${name} wallet was found in this browser. Install it, then try again.`, install: l && l.url });
+    return;
+  }
+  const mine = ++walletTry;
+  walletConnectingView(name, id);
+  walletTimers.push(setTimeout(() => {
+    if (mine !== walletTry) return;
+    walletTry++;
+    walletFailedView({ id, name, title: 'No response', text: `${name} did not answer in 60 seconds. Open the wallet window and try again.` });
+  }, 60000));
+  try {
+    await signIn(w);
+    location.reload();                                    // the session exists now: the page starts again signed in
+  } catch (e) {
+    if (mine !== walletTry) return;                       // cancelled, timed out or closed meanwhile
+    walletTry++;
+    const m = (e && e.message) || 'Sign-in failed';
+    const refused = /cancelled|declined|reject|denied/i.test(m);
+    walletFailedView(refused
+      ? { id, name, title: 'Connection refused', text: `The request was declined in ${name}. Nothing was shared and nothing was signed.` }
+      : { id, name, title: "Couldn't sign in", text: m });
   }
 }
 
-function openWallet(err = '') {
-  const card = $('walletCard');
-  const msg = typeof err === 'string' ? err : '';
-  if (!betting.guest) {
-    card.innerHTML =
-      `<p class="kicker">Your wallet</p><code class="walletaddr">${betting.address}</code>` +
-      `<p class="note">Signed in on Solana devnet. Other players see you as <b>${shortAddr(betting.address)}</b>.</p>` +
-      `<div id="walletTokens"></div><p class="walleterr" id="walletErr"></p>` +
-      `<button id="walletOut" class="cta">Disconnect</button>` + appearanceRow();
-    $('walletOut').onclick = async () => { await signOut(); location.reload(); };
-    loadTokenRows();
-  } else {
-    const found = walletProviders();
-    card.innerHTML =
-      `<p class="kicker">Connect a wallet</p>` +
-      `<p class="note">Sign a free message to play. It sends no transaction, costs no fee and gives us no access to your funds.</p>` +
-      (found.length
-        ? found.map(w => `<button class="walletopt" data-w="${w.id}">${w.name}<small>Detected</small></button>`).join('')
-        : `<p class="note">No Solana wallet found in this browser. Install one, then reload:</p>` +
-          WALLET_LINKS.map(l => `<a class="walletopt" href="${l.url}" target="_blank" rel="noopener noreferrer">${l.name}<small>Install</small></a>`).join('')) +
-      `<p class="walleterr" id="walletErr">${msg}</p><button id="walletClose" class="cta">Close</button>` + appearanceRow();
-    for (const btn of card.querySelectorAll('[data-w]')) {
-      btn.onclick = async () => {
-        btn.disabled = true; $('walletErr').textContent = '';
-        try { await signIn(found.find(w => w.id === btn.dataset.w)); location.reload(); }
-        catch (e) { btn.disabled = false; $('walletErr').textContent = e.message || 'Sign-in failed'; }
-      };
-    }
-    $('walletClose').onclick = () => { $('walletOverlay').hidden = true; };
+/** W4: the signed-in account. */
+function walletAccountView() {
+  const addr = betting.address || '';
+  walletShow(
+    `<p class="wlabel">Wallet</p>` +
+    `<div class="waddr"><code id="walletAddr" title="${esc(addr)}">${shortAddr(addr)}</code>` +
+    `<button type="button" class="wcopy head" data-copy aria-label="Copy address">${SVG_COPY}</button>` +
+    `<span class="devnet">DEVNET</span></div>` +
+    `<p class="wnote dim" id="walletTitle">Connected with ${walletName()}</p>` +
+    `<p class="wlabel">Balances</p><div id="walletTokens" class="wtokens"></div>` +
+    `<p class="walleterr" id="walletErr" role="status"></p>` +
+    `<div class="wfoot"><button type="button" class="wbtn ghost wcopy foot" data-copy>${SVG_COPY}Copy address</button>` +
+    `<button type="button" id="walletOut" class="wbtn ghost">Disconnect</button></div>` + appearanceRow(), '#walletOut');
+  $('walletOut').onclick = async () => { await signOut(); location.reload(); };
+  for (const b of $('walletCard').querySelectorAll('[data-copy]')) {
+    b.onclick = async () => {
+      const keep = b.innerHTML;
+      try { await navigator.clipboard.writeText(addr); b.classList.add('done'); if (b.classList.contains('foot')) b.innerHTML = `${SVG_COPY}Copied`; }
+      catch (_) { $('walletErr').textContent = 'Copy is blocked here. Select the address and copy it.'; return; }
+      walletTimers.push(setTimeout(() => { b.classList.remove('done'); b.innerHTML = keep; }, 1600));
+    };
   }
-  $('walletOverlay').hidden = false;
+  loadTokenRows();
 }
-$('walletOverlay').onclick = (e) => { if (e.target === $('walletOverlay')) $('walletOverlay').hidden = true; };
+
+const clock = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}h ${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}m` : `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+
+/** Each token a round can be played in: the wallet's real balance, and (under the minimum bet) its faucet (W5). */
+async function loadTokenRows() {
+  const box = $('walletTokens');
+  const info = await fetch('/api/chain').then(r => r.json()).catch(() => null);
+  if (!box || box !== $('walletTokens')) return;          // the card moved on while this was loading
+  const tokens = info && info.tokens && info.tokens.length
+    ? [...info.tokens].sort((a, b) => (b.symbol === betting.token) - (a.symbol === betting.token))
+    : [{ symbol: betting.currency, name: 'Test money', minBet: betting.minBet, faucet: { mode: 'none' }, demo: true }];
+  box.innerHTML = tokens.map(t =>
+    `<div class="tokgrp" data-t="${t.symbol}"><div class="tokrow">${glyph(t.symbol)}<span class="sym"><span class="symt">${t.symbol}` +
+    (t.symbol === betting.token || t.demo ? '<em class="wtag2">THIS ROUND</em>' : '') + `<em class="wtag2 low" hidden>LOW</em></span><small>${esc(t.name)}</small></span>` +
+    `<b class="bal">…</b></div><div class="faucet" hidden></div></div>`).join('');
+  const faucetOf = (t) => t.faucet || { mode: 'none' };
+
+  const paint = (t, state, d = {}) => {
+    const f = box.querySelector(`[data-t="${t.symbol}"] .faucet`), fc = faucetOf(t);
+    f.hidden = false; f.dataset.s = state;
+    const amt = `${fmtA(fc.amount || 0)} ${t.symbol}`;
+    const row = (st, sub, right) => `<span class="ftxt"><b>${t.symbol} FAUCET<em> · ${st}</em></b><small>${sub}</small></span>${right}`;
+    if (state === 'idle') f.innerHTML = fc.mode === 'mint'
+      ? `<span class="ftxt"><b>${t.symbol} FAUCET</b><small>${amt} per request</small></span><button type="button" class="wbtn sm" data-get>Get test token</button>`
+      : `<span class="ftxt"><b>${t.symbol} FAUCET</b><small>Free devnet tokens from the token's own faucet</small></span><a class="wbtn sm" href="${fc.url}" target="_blank" rel="noopener noreferrer">Get test token ↗</a>`;
+    else if (state === 'requesting') f.innerHTML = row('Requesting', `Asking the faucet for ${amt}`, `<span class="wbtn sm busy" role="status"><i class="spin" aria-hidden="true"></i>Requesting</span>`);
+    else if (state === 'success') f.innerHTML = row('Received', 'Added to your balance' + (d.url ? ` · <a href="${d.url}" target="_blank" rel="noopener noreferrer">View transaction ↗</a>` : ''), `<b class="fgot">+${amt}</b>`);
+    else if (state === 'cooldown') {
+      f.innerHTML = row('Cooling down', fc.cooldownHours ? `One request every ${fc.cooldownHours} hour${fc.cooldownHours === 1 ? '' : 's'}` : 'One request per wallet', `<b class="fnext">Next in <span data-left></span></b>`);
+      const end = Date.now() + d.ms, left = f.querySelector('[data-left]');
+      const tick = () => { if (Date.now() >= end) { clearInterval(iv); paint(t, 'idle'); } else left.textContent = clock(end - Date.now()); };
+      const iv = setInterval(tick, 1000); walletTimers.push(iv); tick();
+    }
+    else f.innerHTML = row('Request failed', esc(d.text || 'The faucet did not respond. Nothing was charged.'), `<button type="button" class="wbtn sm" data-get>Retry</button>`);
+    const btn = f.querySelector('[data-get]');
+    if (btn) btn.onclick = () => claim(t);
+  };
+
+  const setBal = async (t) => {
+    const grp = box.querySelector(`[data-t="${t.symbol}"]`);
+    const r = t.demo ? { balance: betting.balance } : await fetch(`/api/balance?token=${t.symbol}`).then(x => x.json()).catch(() => ({}));
+    if (!grp) return null;
+    grp.querySelector('.bal').textContent = r.balance === undefined ? '-' : fmtAmount(r.balance);
+    const low = r.balance !== undefined && t.minBet != null && r.balance < t.minBet;
+    grp.querySelector('.low').hidden = !(low && t.symbol === betting.token);
+    // Under the minimum bet there is a way back in: show the faucet (unless it is mid-flight or just paid).
+    const fc = faucetOf(t), f = grp.querySelector('.faucet');
+    if (low && (fc.mode === 'mint' || (fc.mode !== 'none' && fc.url)) && f.hidden) paint(t, 'idle');
+    return r.balance;
+  };
+
+  const claim = async (t) => {
+    paint(t, 'requesting');
+    let r, d = {};
+    try { r = await fetch('/api/faucet', { method: 'POST', body: JSON.stringify({ token: t.symbol }) }); d = await r.json().catch(() => ({})); }
+    catch (_) { r = null; }
+    if (box !== $('walletTokens')) return;
+    if (r && r.ok) {
+      paint(t, 'success', { url: d.signature ? explorer(d.signature, info.cluster) : '' });
+      const grp = box.querySelector(`[data-t="${t.symbol}"]`);
+      if (grp && d.balance !== undefined) { grp.querySelector('.bal').textContent = fmtAmount(d.balance); grp.querySelector('.low').hidden = true; }
+      if (t.symbol === betting.token && betting.refreshBalance) betting.refreshBalance();
+    } else if (r && d.retryInMs) paint(t, 'cooldown', { ms: d.retryInMs });
+    else paint(t, 'failed', { text: r && d.error ? d.error : '' });
+  };
+
+  for (const t of tokens) setBal(t);
+}
+
+function openWallet(err = '') {
+  if (!betting.guest) walletAccountView();
+  else if (typeof err === 'string' && err) {
+    walletFailedView({ id: null, name: 'your wallet', title: "Couldn't connect", text: err });
+  } else walletConnectView();
+}
+$('walletOverlay').onclick = (e) => { if (e.target === $('walletOverlay')) closeWallet(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('walletOverlay').hidden) closeWallet(); });
+// On a phone the card is a bottom sheet: drag the handle down to close it.
+(() => {
+  const card = $('walletCard'); let d = null;
+  card.addEventListener('pointerdown', (e) => {
+    if (!phone.matches || !e.target.closest('.whandle')) return;
+    d = { y0: e.clientY, dy: 0 };
+    try { card.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
+    card.classList.add('dragging');
+  });
+  card.addEventListener('pointermove', (e) => {
+    if (!d) return;
+    d.dy = Math.max(0, e.clientY - d.y0);
+    card.style.transform = `translateY(${d.dy}px)`;
+  });
+  const end = () => {
+    if (!d) return;
+    const far = d.dy > 80; d = null;
+    card.classList.remove('dragging');
+    if (far) closeWallet(); else card.style.transform = '';
+  };
+  card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
+})();
 
 $('helpBtn').onclick = () => { $('helpOverlay').hidden = false; };
 $('helpClose').onclick = () => { $('helpOverlay').hidden = true; };
