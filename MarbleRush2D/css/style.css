@@ -942,7 +942,7 @@ body.paid .topbar .clock { visibility: hidden; }
   .mproof .proofpill::after { content: ''; position: absolute; inset: -4px 0; }          /* a 44px target for a 36px pill */
   .mproof .proofpill span { font-size: var(--fs-sm); }
   .mproof .proofpill code { font-size: var(--fs-md); }
-  .mproof .devnet { display: inline-flex; background: var(--bg); }
+  .mproof .devnet { display: inline-flex; margin-left: 0; background: var(--bg); }   /* the topbar's auto margin would split the row */
   body.sheet-full .ring, body.sheet-full .mproof { visibility: hidden; }
 
   /* The rail IS the sheet: peek (88px + safe area), half (opens here), full. Its height is --sheet-h, set by the

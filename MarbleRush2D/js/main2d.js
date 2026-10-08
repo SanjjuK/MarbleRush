@@ -642,6 +642,7 @@ function fmtClock(secs) {
 
 /** The ring's circumference (r = 80 in index.html). */
 const RING_C = 2 * Math.PI * 80;
+let lobbyClosed = false;     // bets were closed at the last renderLobby (so the market re-renders once as they close)
 /** Seconds the betting window lasts: the server's own figure on a server round (it can differ from the local 30). */
 const lobbyTotal = () => (NET && netRound && netRound.closesAt > netRound.opensAt ? (netRound.closesAt - netRound.opensAt) / 1000 : LOBBY_SECONDS);
 
@@ -660,6 +661,10 @@ function renderLobby() {
   box.classList.toggle('soon', live && left <= 10);
   box.classList.toggle('now', live && left <= 5);
 
+  // Lock the market the moment bets close (4 s before zero on a server round), not on the next whole second.
+  const closed = live && betsClosed();
+  if (closed !== lobbyClosed) { lobbyClosed = closed; if (closed && phase === PHASE.BETTING && renderer) renderTote(); }
+
   const secs = Math.ceil(left);
   if (!live || secs === lobbyShown) return;
   lobbyShown = secs;
@@ -669,8 +674,6 @@ function renderLobby() {
   // The topbar clock counts race seconds once there is a race. Until then it carries the same
   // countdown: on a phone the ring is not drawn and this is the copy you can see.
   $('raceClock').textContent = fmtClock(left);
-  // At zero the market locks: rows, chips and the button all say so (A09).
-  if (left <= 0 && phase === PHASE.BETTING && renderer) renderTote();
 }
 
 function renderWallet() {
@@ -778,7 +781,11 @@ const inflight = () => !!betting.betState && betting.betState !== 'idle';
 let connLost = false, everLive = false, loadingNow = false, connTimers = [];
 /** The server round was meant to be sealed on Solana and that failed: nobody can bet on it. */
 const chainDown = () => { const c = NET ? betting.chain : null; return !!(c && c.cluster && c.commit.status === 'failed'); };
-const isLocked = () => phase !== PHASE.BETTING || !!betting.placed || inflight() || lobby <= 0 || connLost || chainDown();
+/** Seconds before the gates open when a server round stops taking bets: the server refuses a prepare inside its last
+ *  4 s (a bet needs time to be signed and confirmed), so the dock closes a little before that instead of failing. */
+const BET_CUTOFF = 4.25;
+const betsClosed = () => lobby <= (NET ? BET_CUTOFF : 0);
+const isLocked = () => phase !== PHASE.BETTING || !!betting.placed || inflight() || betsClosed() || connLost || chainDown();
 let betFail = null;          // why the last bet was not placed (A11a); cleared by any change of pick or stake
 let dockLast = '';           // the dock is only written when its content changes
 
@@ -985,7 +992,7 @@ function stepsHtml(n) {
   }).join('');
 }
 
-const pressBet = () => { betFail = null; if (betting.placeBet()) { renderTote(); renderWallet(); } };
+const pressBet = () => { if (isLocked()) { renderTote(); return; } betFail = null; if (betting.placeBet()) { renderTote(); renderWallet(); } };
 const topUp = () => { betting.topUp(); renderWallet(); renderTote(); };
 
 /**
@@ -1000,9 +1007,10 @@ function dockView() {
     forTxt: sel >= 0 ? `Backing <b>${esc(name)}</b> · ${mtag(sel)}` : 'No marble selected', disabled: true };
 
   // A09: the clock ran out, or the race has begun. A bet already placed stands. (A bet still in flight is shown below.)
-  if (phase !== PHASE.BETTING || (lobby <= 0 && !inflight())) {
+  if (phase !== PHASE.BETTING || (betsClosed() && !inflight())) {
     return { ...v, k: 'idle', forTxt: 'Bets locked', label: `${ICON.lock}Betting closed`,
-      hint: betting.placed ? `Your bet on ${esc(name)} stands · ${fmtA(betting.stake)} ${esc(cur())}` : 'You are watching this round' };
+      hint: betting.placed ? `Your bet on ${esc(name)} stands · ${fmtA(betting.stake)} ${esc(cur())}`
+        : lobby > 0 ? 'Bets close 4 seconds before the gates open' : 'You are watching this round' };
   }
   if (connLost) {                                                                                       // A1: bets pause with the link
     return { ...v, k: 'idle', forTxt: 'Link lost', label: `${ICON.spin}Reconnecting…`, hint: 'Bets resume when the link is back' };
@@ -1391,6 +1399,8 @@ function drawConfetti(dt) {
 
 /** 3:31.42, the way the tower and the design write a race time. */
 const fmtTime = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
+/** The topbar race clock: 42.17s under a minute, then 3:31.42 like the tower. */
+const fmtRace = (t) => (t < 60 ? `${t.toFixed(2)}s` : fmtTime(t));
 const signed = (v) => `${v < 0 ? '−' : '+'}${fmtAmount(Math.abs(v))}`;
 const pad2 = (i) => String(i + 1).padStart(2, '0');
 const tokHtml = (i, cls = '') => `<span class="tok ${cls}" style="--c:${MARBLE_DATA[i].hex}">${pad2(i)}</span>`;
@@ -1805,7 +1815,9 @@ function frame(now) {
     if (accumulator > SIM_DT * 600) accumulator = 0;
 
     recordFrame();
-    $('raceClock').textContent = `${engine.time.toFixed(2)}s`;
+    // Race time stops when the last marble is home; the field rolls on into the basin after that.
+    const home = engine.allFinished ? Math.max(0, ...engine.marbles.filter(m => m.finished).map(m => m.finishTime)) : 0;
+    $('raceClock').textContent = fmtRace(home || engine.time);
     if (engine.allFinished || engine.time > MAX_RACE_SECONDS) {
       // A server round is over when the SERVER says so and has paid out; the
       // field rolls on into the basin until then.

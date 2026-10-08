@@ -212,9 +212,10 @@ export class BettingManager {
     return amount >= MIN_BET && amount <= this.balance;
   }
 
-  select(idx) { this.selected = idx; }
+  select(idx) { if (!this.placed) this.selected = idx; }   // a placed bet is final: settle() pays on selected and stake
 
   setStake(v) {
+    if (this.placed) return this.stake;
     this.stake = Math.max(MIN_BET, Math.min(this.maxStake, Math.round(v)));
     this.stakePref = this.stake;
     this._save();
