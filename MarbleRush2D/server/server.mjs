@@ -137,10 +137,18 @@ function makeBots(rng, scale = 1) {
 
 /* -------------------------------- round --------------------------------- */
 
-let round = null;
+// A TABLE is one independent round loop with its own pool: its round, its lobby, its players.
+// Round numbers are global, so a round id names exactly one round on exactly one table (chain memos,
+// payout jobs and refunds are all keyed by it).
+const tables = new Map();         // id -> { id, name, round, opening }
 let roundNo = 0;
-let opening = false;
-const clients = new Map();        // res -> { pid }, pid null for a spectator
+const clients = new Map();        // res -> { pid, table }, pid null for a spectator
+
+const defaultTable = () => tables.values().next().value;
+/** The table a request means: ?table= / body.table, else the first one. null when it names none. */
+const tableFor = (id) => (id == null || id === '') ? defaultTable() : (tables.get(String(id)) || null);
+/** The table that is playing round `id` right now, if any. */
+const tableOfRound = (id) => [...tables.values()].find(t => t.round && t.round.id === id) || null;
 
 function leastBacked(r) {
   let best = 0;
@@ -184,20 +192,28 @@ const chainMsg = (r) => ({ id: r.id, cluster: chain ? chain.cluster : null, toke
 // start refunds every bet of that unfinished round and continues the round numbering, so ids never repeat.
 
 const ROUND_FILE = () => path.join(DATA, 'round.json');
+const saved = new Map();          // table id -> the round state last written for it
+let savedMax = 0;                 // the highest round number ever issued
 function saveRoundState(r) {
-  const state = { id: r.id, token: r.token, settled: !!r.settled,
-    bets: r.bets.filter(b => b.pid).map(b => ({ pid: b.pid, marble: b.marble, amount: b.amount, sig: b.sig })) };
+  saved.set(r.tableId, { id: r.id, token: r.token, settled: !!r.settled,
+    bets: r.bets.filter(b => b.pid).map(b => ({ pid: b.pid, marble: b.marble, amount: b.amount, sig: b.sig })) });
+  savedMax = Math.max(savedMax, r.id);
+  const state = { maxId: savedMax, rounds: [...saved.values()] };
   mkdir(DATA, { recursive: true }).then(() => writeFile(ROUND_FILE(), JSON.stringify(state))).catch(e => console.error('[round state]', scrub(e)));
 }
 async function recoverRound() {
   let st;
   try { st = JSON.parse(await readFile(ROUND_FILE(), 'utf8')); } catch { return; }
-  roundNo = Math.max(roundNo, st.id || 0);                       // numbering continues
-  if (!chain || !st.token || st.settled || !st.bets.length) return;
-  if (jobs.some(j => j.round === st.id && j.kind === 'refund')) return;   // already handled
-  console.log(`[restart] round ${st.id} was unfinished: refunding ${st.bets.length} bet(s) in ${st.token}`);
-  queueJobs('refund', st.id, st.token, st.bets.map(b => ({ owner: b.pid, amount: b.amount })));
-  chain.postMemo(`mr1|void|${st.id}|${st.token}|server restarted before the result, all bets refunded`).catch(() => {});
+  const list = st.rounds || [st];                                // the one-round file of an older version has the round itself
+  savedMax = roundNo = Math.max(roundNo, st.maxId || 0, ...list.map(x => x.id || 0));   // numbering continues
+  if (!chain) return;
+  for (const s of list) {
+    if (!s.token || s.settled || !(s.bets || []).length) continue;
+    if (jobs.some(j => j.round === s.id && j.kind === 'refund')) continue;   // already handled
+    console.log(`[restart] round ${s.id} was unfinished: refunding ${s.bets.length} bet(s) in ${s.token}`);
+    queueJobs('refund', s.id, s.token, s.bets.map(b => ({ owner: b.pid, amount: b.amount })));
+    chain.postMemo(`mr1|void|${s.id}|${s.token}|server restarted before the result, all bets refunded`).catch(() => {});
+  }
 }
 
 /* ------------------------------ payout jobs ------------------------------ */
@@ -281,11 +297,11 @@ async function anchor(r, kind, text) {
     slot.status = 'failed';
     console.error(`[round ${r.id}] ${kind} memo failed:`, scrub(e));
   }
-  broadcast('chain', chainMsg(r));
+  broadcast('chain', chainMsg(r), r.tableId);
 }
 
 /** Open a round: seeds, commitment, the race run in full, the bots queued. */
-export async function openRound() {
+export async function openRound(table = defaultTable()) {
   roundNo += 1;
   const courseSeed = randomBytes(8).toString('hex');
   const raceSeed = randomBytes(16).toString('hex');
@@ -319,8 +335,8 @@ export async function openRound() {
   const tok = token ? chain.token(token) : null;
   const minBet = tok ? tok.minBet : MIN_BET;
   const t = now();
-  round = {
-    id: roundNo, courseSeed, raceSeed, commitment: sha256(raceSeed), token, minBet, inflight: new Map(),
+  const round = table.round = {
+    id: roundNo, tableId: table.id, courseSeed, raceSeed, commitment: sha256(raceSeed), token, minBet, inflight: new Map(),
     chain: { commit: { status: chain ? 'pending' : 'off' }, reveal: { status: chain ? 'idle' : 'off' } },
     lanes, result, sync, layout: track.layout,
     phase: 'betting', opensAt: t, closesAt: t + T.lobby * 1000,
@@ -331,14 +347,13 @@ export async function openRound() {
   saveRoundState(round);
   console.log(`[round ${round.id}] open  course ${courseSeed}  commit ${round.commitment.slice(0, 16)}…  ` +
               `race ${result.time}s precomputed in ${ms.toFixed(0)}ms`);   // never the winner: logs get shared
-  broadcast('round', publicRound());
+  broadcast('round', publicRound(round), table.id);
   // Seal it: the commitment goes on chain now, before any bet can be taken.
   if (chain) anchor(round, 'commit', `mr1|commit|${round.id}|${token}|${courseSeed}|${round.commitment}|${PRINT}|${T.blocks || 0}|${CODE.hash}|${CODE.rev}`);
 }
 
 /** Everything a browser may know right now. The race seed only once racing. */
-function publicRound() {
-  const r = round;
+function publicRound(r) {
   const racing = r.phase === 'racing' || r.phase === 'results';
   return {
     id: r.id, phase: r.phase, courseSeed: r.courseSeed, commitment: r.commitment, token: r.token, minBet: r.minBet,
@@ -347,19 +362,18 @@ function publicRound() {
     raceSeed: racing ? r.raceSeed : null,
     pools: r.pools, backers: r.backers,
     bets: r.bets.map(b => ({ handle: b.handle, marble: b.marble, amount: b.amount, whale: b.whale, auto: b.auto, human: !!b.pid })),
-    ready: r.ready.size, players: connectedPlayers().length,
+    ready: r.ready.size, players: connectedPlayers(r.tableId).length,
     result: r.phase === 'results' ? r.result : null,
     lobbySeconds: T.lobby, now: now(),
   };
 }
 
-function connectedPlayers() {
-  return [...new Set([...clients.values()].map(c => c.pid).filter(Boolean))];
+function connectedPlayers(tableId) {
+  return [...new Set([...clients.values()].filter(c => c.table === tableId).map(c => c.pid).filter(Boolean))];
 }
 
 /** Close the lobby: auto-bet the stragglers, then the countdown. */
-function closeLobby() {
-  const r = round;
+function closeLobby(r) {
   if (r.phase !== 'betting') return;
   // Bots that never got their money down take the fallback: minimum, on the
   // least backed marble, read live so a queue of them spreads out.
@@ -372,12 +386,11 @@ function closeLobby() {
   r.raceAt = now() + T.countdown * 1000;
   r.resultAt = r.raceAt + (r.result.time + T.runout) * 1000;
   r.nextAt = r.resultAt + T.results * 1000;
-  broadcast('round', publicRound());
+  broadcast('round', publicRound(r), r.tableId);
 }
 
 /** Pay every backer. Shares of the net pool by finishing position. */
-function settle() {
-  const r = round;
+function settle(r) {
   const order = r.result.finishOrder;
   const total = r.pools.reduce((a, b) => a + b, 0);
   const net = total * (1 - RAKE);
@@ -411,8 +424,8 @@ function settle() {
 }
 
 /** The round clock. Runs every 100ms; cheap. */
-function tick() {
-  const r = round, t = now();
+function tick(table) {
+  const r = table.round, t = now();
   if (!r) return;
   if (r.phase === 'betting') {
     let changed = false;
@@ -421,52 +434,53 @@ function tick() {
       addBet(r, { handle: b.handle, marble: b.marble, amount: b.amount, whale: b.whale });
       changed = true;
     }
-    if (changed) broadcast('pool', poolMsg());
-    if (t >= r.closesAt) closeLobby();
+    if (changed) broadcast('pool', poolMsg(r), r.tableId);
+    if (t >= r.closesAt) closeLobby(r);
   } else if (r.phase === 'countdown' && t >= r.raceAt) {
     r.phase = 'racing';
-    broadcast('round', publicRound());
+    broadcast('round', publicRound(r), r.tableId);
   } else if (r.phase === 'racing') {
     // A position check each second of race time.
     const s = Math.floor((t - r.raceAt) / 1000);
     if (s !== r.lastSync && s >= 1 && s <= r.sync.length) {
       r.lastSync = s;
-      broadcast('sync', { id: r.id, second: s, pos: r.sync[s - 1] });
+      broadcast('sync', { id: r.id, second: s, pos: r.sync[s - 1] }, r.tableId);
     }
     if (t >= r.resultAt) {
-      settle();
+      settle(r);
       if (chain && r.chain.commit.status === 'confirmed') {
         anchor(r, 'reveal', `mr1|reveal|${r.id}|${r.token}|${r.raceSeed}|${r.result.finishOrder.join(',')}|${r.settled.totalPool}|${r.chain.commit.sig}`);
       }
       if (r.token && chain && r.payouts.length) queueJobs('payout', r.id, r.token, r.payouts);
       saveRoundState(r);
       r.phase = 'results';
-      broadcast('round', publicRound());
-      for (const [res, c] of clients) if (c.pid) send(res, 'settled', settledFor(c.pid));
+      broadcast('round', publicRound(r), r.tableId);
+      for (const [res, c] of clients) if (c.pid && c.table === r.tableId) send(res, 'settled', settledFor(c.pid, r));
     }
-  } else if (r.phase === 'results' && t >= r.nextAt && !opening) {
-    opening = true;                                  // openRound awaits; tick runs every 100ms
-    openRound().catch(e => console.error('[round]', e)).finally(() => { opening = false; });
+  } else if (r.phase === 'results' && t >= r.nextAt && !table.opening) {
+    table.opening = true;                            // openRound awaits; tick runs every 100ms
+    openRound(table).catch(e => console.error('[round]', e)).finally(() => { table.opening = false; });
   }
 }
 
-function settledFor(pid) {
-  const r = round, w = wallet(pid);
+function settledFor(pid, r) {
+  const w = wallet(pid);
   return { id: r.id, you: r.settled?.per[pid] || null, totalPool: r.settled?.totalPool, balance: r.token ? undefined : w.balance,
            history: w.history, stats: w.stats, raceSeed: r.raceSeed, commitment: r.commitment };
 }
 
-const poolMsg = () => ({ id: round.id, pools: round.pools, backers: round.backers,
-  bets: round.bets.map(b => ({ handle: b.handle, marble: b.marble, amount: b.amount, whale: b.whale, auto: b.auto, human: !!b.pid })),
-  ready: round.ready.size, players: connectedPlayers().length, now: now() });
+const poolMsg = (r) => ({ id: r.id, pools: r.pools, backers: r.backers,
+  bets: r.bets.map(b => ({ handle: b.handle, marble: b.marble, amount: b.amount, whale: b.whale, auto: b.auto, human: !!b.pid })),
+  ready: r.ready.size, players: connectedPlayers(r.tableId).length, now: now() });
 
 /* --------------------------------- SSE ---------------------------------- */
 
 function send(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
-function broadcast(event, data) {
-  for (const res of clients.keys()) send(res, event, data);
+/** To everyone watching `tableId`, or to every connection when no table is named. */
+function broadcast(event, data, tableId) {
+  for (const [res, c] of clients) if (tableId === undefined || c.table === tableId) send(res, event, data);
 }
 setInterval(() => { for (const res of clients.keys()) res.write(': keep-alive\n\n'); }, 15000);
 
@@ -549,19 +563,22 @@ async function api(req, res, url) {
   if (url.pathname === '/api/events') {
     const ip = clientIp(req);
     if (clients.size >= SSE_TOTAL || (sseByIp.get(ip) || 0) >= SSE_PER_IP) return json(res, 429, { error: 'too many open connections' });
+    const table = tableFor(url.searchParams.get('table'));
+    if (!table) return json(res, 404, { error: 'no such table' });
     sseByIp.set(ip, (sseByIp.get(ip) || 0) + 1);
     res.on('close', () => { const n = (sseByIp.get(ip) || 1) - 1; if (n) sseByIp.set(ip, n); else sseByIp.delete(ip); });
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-    clients.set(res, { pid });
+    clients.set(res, { pid, table: table.id });
+    const round = table.round;
     if (pid) {
       const w = wallet(pid);
-      send(res, 'hello', { pid, name: w.name, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, history: w.history, stats: w.stats, now: now(), timing: T });
-    } else send(res, 'hello', { guest: true, print: PRINT, code: CODE, balance: 0, history: [], stats: null, now: now(), timing: T });
-    send(res, 'round', publicRound());
+      send(res, 'hello', { pid, name: w.name, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, table: table.id, history: w.history, stats: w.stats, now: now(), timing: T });
+    } else send(res, 'hello', { guest: true, print: PRINT, code: CODE, balance: 0, history: [], stats: null, table: table.id, now: now(), timing: T });
+    send(res, 'round', publicRound(round));
     send(res, 'chain', chainMsg(round));
-    if (pid && round.phase === 'results') send(res, 'settled', settledFor(pid));
-    broadcast('pool', poolMsg());
-    req.on('close', () => { clients.delete(res); if (round) broadcast('pool', poolMsg()); });
+    if (pid && round.phase === 'results') send(res, 'settled', settledFor(pid, round));
+    broadcast('pool', poolMsg(round), table.id);
+    req.on('close', () => { clients.delete(res); if (table.round) broadcast('pool', poolMsg(table.round), table.id); });
     return;
   }
   if (url.pathname === '/api/balance') {
@@ -621,10 +638,11 @@ async function api(req, res, url) {
       return json(res, 502, { error: 'the faucet could not reach Solana, try again' });
     }
   }
-  const r = round, w = wallet(pid);
+  const table = tableFor(body.table);
+  if (!table) return json(res, 404, { error: 'no such table' });
+  const r = table.round, w = wallet(pid);
 
   if (url.pathname === '/api/bet/prepare') {
-    const r = round;
     if (!chain || !r.token) return json(res, 409, { error: 'this round has no token' });
     if (r.phase !== 'betting' || r.closesAt - now() < 4000) return json(res, 409, { error: 'betting is closed' });
     if (r.chain.commit.status === 'pending') return json(res, 409, { error: 'sealing the round on Solana, one moment' });
@@ -648,14 +666,12 @@ async function api(req, res, url) {
   }
   if (url.pathname === '/api/bet/submit') {
     if (!chain || !chain.preparedBet(String(body.prepId || ''), pid)) return json(res, 410, { error: 'that bet expired, try again' });
-    const r0 = round;
     let out;
     try { out = await chain.submitBet(String(body.prepId), pid, String(body.tx || '')); }
-    catch (e) { console.error('[submit]', scrub(e)); r0.inflight.delete(pid); return json(res, 502, { error: 'the bet did not reach Solana, try again' }); }
-    r0.inflight.delete(pid);
+    catch (e) { console.error('[submit]', scrub(e)); r.inflight.delete(pid); return json(res, 502, { error: 'the bet did not reach Solana, try again' }); }
+    r.inflight.delete(pid);
     if (out.error) return json(res, out.status, { error: out.error });
     // It landed. It counts only if its own round is still taking bets; otherwise it is refunded.
-    const r = round;
     if (r.id !== out.roundId || r.phase !== 'betting') {
       queueJobs('refund', out.roundId, out.symbol, [{ owner: pid, amount: out.amount }]);
       return json(res, 409, { error: 'the round closed just before your bet landed: it will be refunded', refunded: true, signature: out.signature });
@@ -665,7 +681,7 @@ async function api(req, res, url) {
     w.stats.races += 1; w.stats.wagered += out.amount; walletsDirty = true;
     addBet(r, { pid, handle: w.name, marble: out.marble, amount: out.amount, sig: out.signature });
     saveRoundState(r);
-    broadcast('pool', poolMsg());
+    broadcast('pool', poolMsg(r), table.id);
     return json(res, 200, { ok: true, signature: out.signature, round: out.roundId, amount: out.amount });
   }
   if (url.pathname === '/api/bet') {
@@ -678,16 +694,16 @@ async function api(req, res, url) {
     if (r.bets.some(b => b.pid === pid)) return json(res, 409, { error: 'already bet this round' });
     w.balance -= amount; w.stats.races += 1; w.stats.wagered += amount; walletsDirty = true;
     addBet(r, { pid, handle: w.name, marble, amount });
-    broadcast('pool', poolMsg());
+    broadcast('pool', poolMsg(r), table.id);
     return json(res, 200, { ok: true, balance: w.balance });
   }
   if (url.pathname === '/api/ready') {
     if (r.phase !== 'betting') return json(res, 409, { error: 'not in the lobby' });
     r.ready.add(pid);
     // Everyone connected is ready: no reason to hold the table.
-    const players = connectedPlayers();
-    if (players.length && players.every(p => r.ready.has(p) && r.bets.some(b => b.pid === p))) closeLobby();
-    else broadcast('pool', poolMsg());
+    const players = connectedPlayers(table.id);
+    if (players.length && players.every(p => r.ready.has(p) && r.bets.some(b => b.pid === p))) closeLobby(r);
+    else broadcast('pool', poolMsg(r), table.id);
     return json(res, 200, { ok: true });
   }
   if (url.pathname === '/api/topup') {
@@ -728,8 +744,9 @@ export async function start(port = PORT) {
     console.log(chain ? `[chain] ${chain.cluster}, tokens ${[...chain.tokens.keys()].join(', ')}, authority ${chain.authority.publicKey.toBase58()}` : '[chain] not set up: demo money only');
   } catch (e) { console.error('[chain] could not open:', scrub(e)); }
   await recoverRound();
-  await openRound();
-  setInterval(tick, 100);
+  tables.set('main', { id: 'main', name: 'Main', round: null, opening: false });
+  for (const t of tables.values()) await openRound(t);
+  setInterval(() => { for (const t of tables.values()) tick(t); }, 100);
   const server = http.createServer((req, res) => {
     hardenHeaders(req, res);
     let url;
