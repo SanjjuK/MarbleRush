@@ -628,6 +628,7 @@ async function api(req, res, url) {
     if (!chain || !r.token) return json(res, 409, { error: 'this round has no token' });
     if (r.phase !== 'betting' || r.closesAt - now() < 4000) return json(res, 409, { error: 'betting is closed' });
     if (r.chain.commit.status === 'pending') return json(res, 409, { error: 'sealing the round on Solana, one moment' });
+    if (r.chain.commit.status !== 'confirmed') return json(res, 409, { error: 'this round could not be sealed on Solana, so it is watch-only' });
     if (!prepareLimit.allow(pid)) return json(res, 429, { error: 'one moment' });
     if (!(await chain.solAtLeast(0.003))) return json(res, 503, { error: 'bets are paused: the house wallet is low on SOL for fees' });
     const tok = chain.token(r.token);

@@ -178,6 +178,7 @@ function resetRoundUI() {
  */
 function onNetRound(r) {
   netRound = r;
+  if (loadingNow) { loadingNow = false; document.body.classList.remove('loading'); renderTote(); renderFeed(); }
   if (!track || r.id !== betting.shownRound) newNetRound(r);
   if (r.phase === 'betting') {
     if (phase !== PHASE.BETTING && phase !== PHASE.READY) phase = PHASE.BETTING;
@@ -698,6 +699,7 @@ const mtag = (i) => `${MARBLE_DATA[i].ticker} ${String(i + 1).padStart(2, '0')}`
 function renderFeed() {
   const ul = $('feed');
   if (!ul) return;
+  if (loadingNow) { skeletonRows(ul, 3); $('feedCount').textContent = 'Loading'; return; }
   const rows = betting.bots.slice(-4).reverse();
   $('feedCount').textContent = betting.bots.length ? `${betting.bots.length}` : '';
   const lastBet = betting.bots[betting.bots.length - 1], pk = $('betPeek');
@@ -712,7 +714,7 @@ function renderFeed() {
       `<span class="who"><b>${esc(b.handle)}${b.auto ? ' · auto' : ''}</b><span>backed ${esc(d.name)} · ${mtag(b.marble)}</span></span>` +
       `${b.whale ? '<em class="whale">WHALE</em>' : ''}` +
       `<span class="amt">${fmtA(b.amount)} <small>${esc(cur())}</small></span></li>`;
-  }).join('') || '<li class="empty"><b>No bets yet</b><span>Be the first</span></li>';
+  }).join('') || '<li class="empty"><b>No bets yet · Be the first</b><span>Bets appear here as they land</span></li>';
 }
 
 function renderRecord() {
@@ -765,13 +767,18 @@ function renderHistory() {
            `<span class="who"><b>${d.name}</b> <i>race ${h.round}</i></span>` +
            `<span class="amt ${cls}">${tag}</span></li>`;
   }).join('') ||
-    '<li class="empty"><span class="who">No races yet. Back a marble and this fills up.</span></li>';
+    '<li class="empty"><span class="who"><b>No races yet</b> <i>Your first race result will show here</i></span></li>';
 }
 
 /** A bet is in flight from the press of Bet until the wallet and the chain have answered (R1). */
 const inflight = () => !!betting.betState && betting.betState !== 'idle';
 /** Nothing about the bet may change: it is sent or on its way, the clock ran out, or the race has begun (R1). */
-const isLocked = () => phase !== PHASE.BETTING || !!betting.placed || inflight() || lobby <= 0;
+/* ------------------------- system states (frames A1 to A5) ------------------------- */
+
+let connLost = false, everLive = false, loadingNow = false, connTimers = [];
+/** The server round was meant to be sealed on Solana and that failed: nobody can bet on it. */
+const chainDown = () => { const c = NET ? betting.chain : null; return !!(c && c.cluster && c.commit.status === 'failed'); };
+const isLocked = () => phase !== PHASE.BETTING || !!betting.placed || inflight() || lobby <= 0 || connLost || chainDown();
 let betFail = null;          // why the last bet was not placed (A11a); cleared by any change of pick or stake
 let dockLast = '';           // the dock is only written when its content changes
 
@@ -784,6 +791,8 @@ function pickMarble(i) {
 
 function renderTote() {
   const ul = $('tote');
+  if (loadingNow) { skeletonRows(ul, MARBLE_DATA.length); ul.setAttribute('aria-busy', 'true'); return; }
+  ul.removeAttribute('aria-busy');
   const locked = isLocked();
   // Rebuilding the rows would drop keyboard focus, so remember which row had it.
   const focused = ul.contains(document.activeElement) ? [...ul.children].indexOf(document.activeElement.closest('li')) : -1;
@@ -859,6 +868,48 @@ function renderStakes() {
   }
 }
 
+/** A1: the link dropped. The race keeps running here (this screen simulates it); data panels hold their last update. */
+function showConn(kind) {
+  const b = $('connBanner');
+  b.hidden = !kind;
+  b.dataset.k = kind || '';
+  if (kind === 'lost') b.innerHTML = `<i class="spin" aria-hidden="true"></i><span>Reconnecting… <span class="sub">the race keeps running here</span></span><em class="wtag2">PAUSED</em>`;
+  else if (kind === 'back') b.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Reconnected</span><em class="wtag2">LIVE</em>`;
+}
+function offlineCard() {
+  const c = $('offlineCard');
+  c.innerHTML = GRAB + `<div class="wstate"><span class="wbang" aria-hidden="true">!</span><b class="wtag">OFFLINE</b>` +
+    `<h2 class="wtitle" id="offlineTitle">Can't reach the server</h2>` +
+    `<p class="wnote">Your balance is on Solana. We'll keep trying in the background.</p></div>` +
+    `<button type="button" class="wbtn" id="offlineRetry">Retry</button>`;
+  c.setAttribute('role', 'alertdialog'); c.setAttribute('aria-modal', 'true'); c.setAttribute('aria-labelledby', 'offlineTitle');
+  $('offlineRetry').onclick = () => location.reload();
+  $('offlineOverlay').hidden = false;
+}
+function onNetStatus(st) {
+  if (st === 'reconnecting') {
+    if (connLost) return;
+    connLost = true;
+    document.body.classList.add('reconnecting');
+    for (const t of connTimers) clearTimeout(t);
+    connTimers = [setTimeout(() => { if (connLost) offlineCard(); }, 12000)];   // A4: a few seconds is a blip, this is an outage
+    showConn('lost'); renderTote(); renderBetButton();
+  } else if (st === 'live') {
+    everLive = true;
+    if (!connLost) return;
+    connLost = false;
+    for (const t of connTimers) clearTimeout(t);
+    document.body.classList.remove('reconnecting');
+    $('offlineOverlay').hidden = true;
+    showConn('back');
+    connTimers = [setTimeout(() => { if (!connLost) showConn(null); }, 2000)];
+    renderTote(); renderBetButton();
+  }
+}
+
+/** A2: until the first round arrives, rows keep their real 40px height so nothing jumps. */
+function skeletonRows(ul, n) { ul.innerHTML = Array.from({ length: n }, () => '<li class="skel" aria-hidden="true"><i></i><i></i></li>').join(''); }
+
 const shortHash = (h) => (h ? `${h.slice(0, 4)}...${h.slice(-3)}` : '-');
 
 /** The proof pill (top bar) and the proof card (left column) say how far the round has got on Solana. */
@@ -871,9 +922,11 @@ function renderFair() {
     if (c.reveal.status === 'confirmed') { text = 'Verified on Solana'; sig = c.reveal.sig; state = 'verified'; }
     else if (c.commit.status === 'confirmed') { text = 'Sealed on Solana'; sig = c.commit.sig; state = 'sealed'; }
     else if (c.commit.status === 'pending') { text = 'Sealing on Solana…'; sealing = true; state = 'sealing'; }
+    else { text = 'Not sealed on Solana'; state = 'none'; }
   }
   label.textContent = text;
   el.classList.toggle('sealing', sealing);
+  el.classList.toggle('none', state === 'none');
   el.classList.add('link');
   el.setAttribute('aria-disabled', 'false');
   const open = openProof;                                 // the pill opens the proof card; it links to both transactions
@@ -884,6 +937,7 @@ function renderFair() {
   $('mFairLabel').textContent = text;
   $('mFairHash').textContent = $('commitment').textContent;
   mf.classList.toggle('sealing', sealing);
+  mf.classList.toggle('none', state === 'none');
   mf.classList.add('link');
   mf.setAttribute('aria-disabled', 'false');
   mf.onclick = open;
@@ -893,12 +947,14 @@ function renderFair() {
   $('proofState').textContent = text;
   $('proofHash').textContent = $('commitment').textContent;
   $('proofPill').classList.toggle('sealing', sealing);
+  $('proofPill').classList.toggle('none', state === 'none');
   const n = betting.round;
   $('proofText').textContent = {
     verified: `Round ${n} was sealed on Solana before betting opened, and its seed is now revealed, so anyone can replay the race.`,
     sealed: `Round ${n} was sealed on Solana before betting opened. The seed is revealed when the gates open, so anyone can check the result.`,
     sealing: `Round ${n} is being sealed on Solana. Betting opens as soon as it is sealed.`,
     fixed: `Round ${n} is fixed by this hash before betting opens. The seed is revealed when the gates open, so anyone can replay the race.`,
+    none: `Round ${n} cannot be verified on-chain. It was not sealed before betting, so it runs as a watch-only race.`,
   }[state];
   const v = $('proofVerify');
   v.onclick = open;
@@ -906,6 +962,7 @@ function renderFair() {
   $('resProofText').textContent = text;
   $('resProofHash').textContent = $('commitment').textContent;
   $('resProof').classList.toggle('sealing', sealing);
+  $('resProof').classList.toggle('none', state === 'none');
   $('resProofBtn').onclick = open;
   if (!$('proofOverlay').hidden) renderProof();           // a chain event while the card is open
 }
@@ -947,6 +1004,12 @@ function dockView() {
     return { ...v, k: 'idle', forTxt: 'Bets locked', label: `${ICON.lock}Betting closed`,
       hint: betting.placed ? `Your bet on ${esc(name)} stands · ${fmtA(betting.stake)} ${esc(cur())}` : 'You are watching this round' };
   }
+  if (connLost) {                                                                                       // A1: bets pause with the link
+    return { ...v, k: 'idle', forTxt: 'Link lost', label: `${ICON.spin}Reconnecting…`, hint: 'Bets resume when the link is back' };
+  }
+  if (chainDown()) {                                                                                    // A5
+    return { ...v, k: 'idle', forTxt: 'Watching only', label: `${ICON.lock}Chain unavailable · watching only`, hint: 'This round cannot be verified on-chain.' };
+  }
   if (betting.guest) {                                                                                  // A08
     return { ...v, k: 'cta', disabled: false, onclick: openWallet, label: `${ICON.wallet}Connect wallet to play`, hint: 'Players never need SOL' };
   }
@@ -974,7 +1037,9 @@ function dockView() {
       label: 'Bet not placed · Try again', hint: 'Your stake and pick are kept' };
   }
   if (betting.balance < min - 1e-9) {                                                                   // A07
-    const low = `<span class="tagbox">LOW</span><span>Balance ${fmtAmount(betting.balance)} ${esc(cur())}, minimum ${minTxt}</span>`;
+    const low = betting.balance === 0
+      ? `<span class="tagbox">NEW WALLET</span><span>Free devnet test tokens. No real funds.</span>`        // A3
+      : `<span class="tagbox">LOW</span><span>Balance ${fmtAmount(betting.balance)} ${esc(cur())}, minimum ${minTxt}</span>`;
     return betting.token
       ? { ...v, k: 'cta', disabled: false, onclick: openWallet, label: `${ICON.drop}Get test token`, hint: low }
       : { ...v, k: 'cta', disabled: false, onclick: topUp, label: `${ICON.drop}Top up demo wallet`, hint: low };
@@ -2232,7 +2297,8 @@ $('camToggle').onclick = () => {
 (async () => {
   if (await detectServer()) {
     NET = true;
-    document.body.classList.add('net');
+    document.body.classList.add('net', 'loading');
+    loadingNow = true; renderTote(); renderFeed();
     betting = new RemoteBetting({
       round: onNetRound,
       pool: () => { renderTote(); renderFeed(); if (phase === PHASE.READY) renderBetButton(); },
@@ -2240,7 +2306,8 @@ $('camToggle').onclick = () => {
       settled: onNetSettled,
       hello: renderAccount,
       payout: () => renderResultLinks(),
-      chain: () => { renderFair(); if (phase === PHASE.BETTING) renderBetButton(); },
+      chain: () => { renderFair(); renderTote(); if (phase === PHASE.BETTING) renderBetButton(); },
+      status: onNetStatus,
       changed: () => { renderTote(); renderWallet(); renderStakes(); renderBetButton(); },
       error: (msg) => announce(`<span class="msg">${esc(msg)}</span>`, 'out'),
       betFailed: onBetFailed,

@@ -1308,3 +1308,22 @@ body.results.race-on .tower { display: none; }
 .helppulse { animation: hpulse 1.2s ease-out 1; }
 @keyframes hpulse { 0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); } 50% { box-shadow: 0 0 0 10px var(--accent-glow); } }
 @media (prefers-reduced-motion: reduce) { .hslide, .hslide.back, .helppulse { animation: none; } }
+
+/* ---- system states (A1 to A5) ---- */
+.connbar { position: fixed; z-index: 13; top: calc(12px + var(--top-h) + 8px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: var(--s1);
+  min-height: 36px; padding: 0 var(--s2); border-radius: var(--r-pill); background: var(--surface-1); border: 1px solid var(--line-strong); box-shadow: var(--elev);
+  font: 600 var(--fs-md) var(--font-ui); white-space: nowrap; animation: fade .2s ease-out; }
+.connbar[hidden] { display: none; }
+.connbar .sub { font-weight: 400; color: var(--text-2); }
+.connbar .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--text-1); animation: mr-spin 1s linear infinite; }
+.connbar svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The panels hold their last update and cannot be pressed until the link is back. */
+body.reconnecting :is(.tower, .rail, .leftcol, .resstack, .cambar, .results) { opacity: .55; pointer-events: none; transition: opacity .2s; }
+.fair.none, .proofpill.none { border-style: dashed; color: var(--text-2); }
+.fair.none svg path:last-child { display: none; }
+/* skeleton rows: the real 40px height */
+.runners li.skel, .feed li.skel { min-height: 40px; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s2); pointer-events: none; }
+.skel i { height: 12px; border-radius: var(--r-pill); background: var(--surface-3); animation: mr-blink 1.4s ease-in-out infinite; }
+.skel i:first-child { width: 28px; } .skel i:last-child { flex: 1; max-width: 55%; }
+@media (prefers-reduced-motion: reduce) { .skel i, .connbar .spin, .connbar { animation: none; } }
+@media (max-width: 900px) { .connbar { top: calc(12px + var(--top-h) + 4px); max-width: calc(100vw - 24px); } .connbar .sub { display: none; } }
