@@ -56,6 +56,12 @@ export class RemoteBetting {
     this.minBetV = MIN_BET;
     this.tokenMeta = {};            // symbol -> { stakes, minBet, decimals } from /api/chain
     this.betState = 'idle';         // idle | preparing | signing | confirming
+    this.tableId = '';              // the table this page is seated at ('live', 'live-2', ...)
+    this.family = '';
+    this.tableInfo = null;          // { id, name, minPlayers, maxPlayers, bots } from the round
+    this.real = 0;                  // wallets that have bet at this table this round
+    this.tables = [];               // every table, from /api/tables (refreshTables)
+    this._retry = 0;
     fetch('/api/chain').then(r => r.json()).then(i => { for (const t of i.tokens) this.tokenMeta[t.symbol] = t; this.cluster = i.cluster; this.on.changed?.(); }).catch(() => {});
     this.offsets = [];              // server clock minus ours, per message
     this.connect();
@@ -74,8 +80,13 @@ export class RemoteBetting {
 
   /* ---------------------------- connection ----------------------------- */
 
-  connect() {
-    const es = new EventSource('/api/events');   // the session cookie says who we are
+  /**
+   * Seat this page at a table. `table` is a family ("live": the busiest one with room) or, with `pin`,
+   * exactly one table ("live-2"). The first visit asks for the stored or ?table= family, else the server's default.
+   */
+  connect(table = this._wantTable(), pin = false) {
+    const q = table ? `?table=${encodeURIComponent(table)}${pin ? '&pin=1' : ''}` : '';
+    const es = new EventSource('/api/events' + q);   // the session cookie says who we are
     this.es = es;
     const on = (type, fn) => es.addEventListener(type, (e) => { const d = JSON.parse(e.data); this._clock(d.now); fn(d); });
     on('hello', (d) => {
@@ -84,9 +95,12 @@ export class RemoteBetting {
       if (!d.onchain) this.balance = d.balance;
       this.history = d.history; this.stats = d.stats || this.stats;
       this.name = d.name;
+      this.tableId = d.table || ''; this.family = d.family || '';
+      if (this.family) { try { localStorage.setItem('marblerush.table', this.family); } catch { /* */ } }
       this.checkPrint(d.print, d.code);
       this.on.hello?.(d);
     });
+    on('notice', (d) => { if (d.id === this.round) this.on.notice?.(d); });
     on('round', (d) => { this._round(d); this.on.round?.(d); });
     on('pool', (d) => { if (d.id === this.round) { this._pool(d); this.on.pool?.(d); } });
     on('sync', (d) => this.on.sync?.(d));
@@ -106,8 +120,65 @@ export class RemoteBetting {
       this.settled = d;
       this.on.settled?.(d);
     });
-    es.onerror = () => this.on.status?.('reconnecting');
-    es.onopen = () => this.on.status?.('live');
+    // Our own reconnect, so a dropped link comes back to the SAME table instead of wherever the browser's retry lands.
+    es.onerror = () => {
+      this.on.status?.('reconnecting');
+      if (this.es !== es) return;
+      es.close();
+      const n = ++this._retry, id = this.tableId;
+      setTimeout(() => {
+        if (this.es !== es) return;
+        // twice failing to find our table (it closed while we were away): its family, then the server's choice
+        if (id && n <= 2) this.connect(id, true);
+        else if (this.family && n <= 4) this.connect(this.family, false);
+        else this.connect('', false);
+      }, Math.min(5000, 800 * n));
+    };
+    es.onopen = () => { this._retry = 0; this.on.status?.('live'); };
+  }
+
+  _wantTable() {
+    try {
+      const q = new URLSearchParams(location.search).get('table');
+      return q || localStorage.getItem('marblerush.table') || '';
+    } catch { return ''; }
+  }
+
+  /** Move to another table (the page resets as the new table's round arrives). */
+  switchTable(id, pin = true) {
+    if (!id || (pin && id === this.tableId)) return;
+    if (this.es) { const old = this.es; this.es = null; old.close(); }
+    this.tableId = id; this._retry = 0;
+    this.round = 0; this.selected = -1; this.placed = false; this.settled = null; this.betState = 'idle'; this._cancel = null;
+    this.pools = new Array(K).fill(0); this.backers = new Array(K).fill(0); this.bots = []; this.real = 0; this.tableInfo = null;
+    this.on.switching?.(id);
+    this.connect(id, pin);
+  }
+
+  /** Every table, for the picker. */
+  async refreshTables() {
+    try {
+      const r = await fetch('/api/tables', { cache: 'no-store' });
+      if (r.ok) this.tables = (await r.json()).tables;
+    } catch { /* keep the last list */ }
+    return this.tables;
+  }
+
+  /** "live-2" as people read it. */
+  tableName(id) {
+    const t = this.tables.find(x => x.id === id);
+    if (t) return t.name;
+    return id.replace(/-(\d+)$/, ' $1').replace(/^./, c => c.toUpperCase());
+  }
+
+  /** A "table is full" answer carries where to go: say so, and go. */
+  _full(body) {
+    if (!body || !body.full) return false;
+    if (body.move) {
+      const to = this.tableName(body.move);
+      setTimeout(() => { this.on.notice?.({ kind: 'moved', message: `That table is full. Moved you to ${to}.` }); this.switchTable(body.move, true); }, 0);
+    }
+    return true;
   }
 
   /**
@@ -182,6 +253,7 @@ export class RemoteBetting {
     }
     this.seed = d.raceSeed || '';
     this.commitment = d.commitment;
+    this.tableInfo = d.table || this.tableInfo;
     this._pool(d);
   }
 
@@ -191,10 +263,11 @@ export class RemoteBetting {
     this.bots = d.bets.map(b => ({ ...b, mine: b.handle === this.name, handle: b.handle === this.name ? 'you' : b.handle }));
     this.ready = d.ready;
     this.players = d.players;
+    if (d.real !== undefined) this.real = d.real;
   }
 
   async _post(path, body) {
-    const r = await fetch(`/api/${path}`, { method: 'POST', body: JSON.stringify(body || {}) });
+    const r = await fetch(`/api/${path}`, { method: 'POST', body: JSON.stringify({ table: this.tableId || undefined, ...(body || {}) }) });
     return { ok: r.ok, body: await r.json().catch(() => ({})) };
   }
 
@@ -242,7 +315,7 @@ export class RemoteBetting {
     const marble = this.selected, amount = this.stake;
     this._post('bet', { marble, amount }).then(({ ok, body }) => {
       if (ok) { this.balance = body.balance; }
-      else { this.placed = false; this.balance += amount; this._betFailed(body.error || 'bet refused'); }
+      else { this.placed = false; this.balance += amount; this._betFailed(body.error || 'bet refused'); this._full(body); }
       this.on.changed?.();
     });
     return true;
@@ -258,7 +331,7 @@ export class RemoteBetting {
     try {
       this.betState = 'preparing'; this.on.changed?.();
       const prep = await this._post('bet/prepare', { marble, amount });
-      if (!prep.ok) return fail(prep.body.error || 'bet refused');
+      if (!prep.ok) { fail(prep.body.error || 'bet refused'); this._full(prep.body); return; }
       this.betState = 'signing'; this.on.changed?.();
       // Cancel in the page abandons the wait; nothing was sent, so a late approval in the wallet is harmless.
       const cancelled = new Promise((_, no) => { this._cancel = () => no(new Error('Bet cancelled')); });

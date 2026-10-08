@@ -894,7 +894,7 @@ body.paid .topbar .clock { visibility: hidden; }
   :root { --top-h: 56px; }
   .topbar { top: 8px; left: 8px; right: 8px; padding: 0 var(--s1); gap: var(--s1); grid-template-columns: auto 1fr auto; }
   /* Brand mark only (Drop v2 compact at 32px); the word, round tag and DEVNET badge give way. */
-  .lockup .mark-hyb, .lockup .word, .brand-sep, .brand .tag, .devnet { display: none; }
+  .lockup .mark-hyb, .lockup .word, .brand-sep, .brand .tag, .devnet, .tablechip { display: none; }
   .lockup .mark-drop { display: block; }
   .clock strong { font-size: 18px; }
   .clock .phase { font-size: 9px; letter-spacing: 0.08em; white-space: nowrap; }
@@ -1351,3 +1351,16 @@ body.reconnecting :is(.tower, .rail, .leftcol, .resstack, .cambar, .results) { o
 @media (prefers-reduced-motion: reduce) {
   .tower-rows li.gain, .tower-rows li.loss, .runners li .win.up, .runners li .win.down, .banner, .burst i { animation: none !important; }
 }
+
+/* ---- tables: the chip beside the round tag, the picker sheet, house stakes in the feed, table notices ---- */
+.tablechip { display: inline-flex; align-items: center; gap: var(--s-half); height: var(--s3); padding: 0 var(--s1); flex: none; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: transparent; color: var(--text-1); font: 600 var(--fs-sm) var(--font-data); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
+.tablechip[hidden] { display: none; }
+.tablechip:hover { background: var(--surface-2); }
+.tablechip svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.walletopt[aria-current="true"] { border-color: var(--text-1); }
+.walletopt .wn small { white-space: normal; }
+.tables-note { margin: var(--s1) 0 0; }
+.feed .house, .betpeek .house { font-style: normal; height: 20px; flex: none; display: inline-flex; align-items: center; padding: 0 var(--s1); border-radius: var(--r-sm); background: var(--surface-3); color: var(--text-2); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .12em; }
+.betpeek .house { height: 18px; padding: 0 var(--s-half); letter-spacing: .1em; }
+.banner.table::before { content: 'TABLE'; }
+@media (max-width: 900px) { .tablechip { display: none; } }

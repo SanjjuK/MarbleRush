@@ -129,12 +129,13 @@ function resetRoundUI() {
   renderer.onResize = layoutRail;          // the progress rail follows the course column
   renderer.setCam(camMode);
   ring = []; clips = []; pendingClips = []; liveCut = null; replayT = 0;
-  betFail = null; dockLast = '';
+  betFail = null; dockLast = ''; tableNote = null;
+  if (['waiting', 'cancelled'].includes($('banner').dataset.k)) $('banner').hidden = true;     // a new round: last round's table notice is stale
   resetTower();
   buildCourseMap();
   lastOdds = [];
   $('roundTag').textContent = `Round ${betting.round}`;
-  $('ringRnd').textContent = `Round ${betting.round}`;
+  $('ringRnd').textContent = `${NET && betting.tableInfo ? betting.tableInfo.name + ' · ' : ''}Round ${betting.round}`;
   document.body.classList.remove('racing', 'countdown', 'results', 'paid');
   $('ridingChip').hidden = true;
   // The panels must be laid out before the renderer measures around them.
@@ -187,7 +188,7 @@ function onNetRound(r) {
   } else if (r.phase === 'racing' || r.phase === 'results') {
     startNetRace(r);
   }
-  renderTote(); renderFeed(); renderWallet();
+  renderTote(); renderFeed(); renderWallet(); renderTableChip();
 }
 
 function newNetRound(r) {
@@ -468,6 +469,7 @@ function renderCourseMap() {
 /* ----------------------------- race events ----------------------------- */
 
 let bannerTimer = 0;
+let tableNote = null;      // the table's notice for the round on screen: { id, kind: 'waiting' | 'cancelled', message }
 
 /** What each hazard DID, for the banner. Keyed by the hazard's cause name. */
 const OUT_WORDS = {
@@ -618,15 +620,16 @@ function onRaceEvent(ev) {
 }
 
 const BANNER_WORD = { out: 'KNOCKOUT', warp: 'WARP', back: 'INCIDENT', bridge: 'BRIDGE', stake: 'STAKED', launch: 'LAUNCH' };
-function announce(html, kind = '') {
+function announce(html, kind = '', secs = 3.2) {
   const el = $('banner');
   el.className = `banner ${kind}`;
+  el.dataset.k = '';
   // RACE CONTROL | KNOCKOUT · Royal swallowed
   el.innerHTML = (BANNER_WORD[kind] ? `<span class="bk">${BANNER_WORD[kind]}</span><span class="sep">·</span>` : '') + html;
   el.hidden = false;
   // Restart the entrance animation even when one banner replaces another.
   el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
-  bannerTimer = 3.2;
+  bannerTimer = secs;
 }
 
 /* --------------------------------- UI ---------------------------------- */
@@ -667,7 +670,7 @@ function renderLobby() {
   lobbyShown = secs;
 
   $('lobbyClock').textContent = fmtClock(left);
-  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open' : left <= 0 ? 'Closed' : 'Betting';
+  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open' : tableNote && tableNote.kind === 'cancelled' ? 'Cancelled' : left <= 0 ? 'Closed' : 'Betting';
   // The topbar clock counts race seconds once there is a race. Until then it carries the same
   // countdown: on a phone the ring is not drawn and this is the copy you can see.
   $('raceClock').textContent = fmtClock(left);
@@ -695,6 +698,9 @@ function renderWallet() {
 /** "FRS 02": a marble's ticker and number, so a row never relies on colour alone. */
 const mtag = (i) => `${MARBLE_DATA[i].ticker} ${String(i + 1).padStart(2, '0')}`;
 
+/** A stake that is the house's, not a player's (server rounds only: the server marks players with `human`). */
+const isHouse = (b) => NET && !b.human && !b.mine;
+
 /** Live bets: who backed what, most recent first. */
 function renderFeed() {
   const ul = $('feed');
@@ -706,13 +712,13 @@ function renderFeed() {
   if (lastBet) {
     const d = MARBLE_DATA[lastBet.marble];
     pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="stripe" style="--c:${d.hex}"></span><b>${esc(lastBet.handle)}</b>` +
-      `<span class="what">${esc(d.name)} · ${fmtA(lastBet.amount)}</span>${lastBet.whale ? '<em class="whale">WHALE</em>' : ''}<span class="more">FEED ↑</span>`;
+      `<span class="what">${esc(d.name)} · ${fmtA(lastBet.amount)}</span>${lastBet.whale ? '<em class="whale">WHALE</em>' : ''}${isHouse(lastBet) ? '<em class="house">HOUSE</em>' : ''}<span class="more">FEED ↑</span>`;
   } else pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="what">No bets yet · Be the first</span><span class="more">FEED ↑</span>`;
   ul.innerHTML = rows.map(b => {
     const d = MARBLE_DATA[b.marble];
     return `<li class="${b.mine ? 'mine' : ''}" style="--c:${d.hex}"><span class="stripe"></span>` +
       `<span class="who"><b>${esc(b.handle)}${b.auto ? ' · auto' : ''}</b><span>backed ${esc(d.name)} · ${mtag(b.marble)}</span></span>` +
-      `${b.whale ? '<em class="whale">WHALE</em>' : ''}` +
+      `${b.whale ? '<em class="whale">WHALE</em>' : ''}${isHouse(b) ? '<em class="house" title="A stake from the house, not a player">HOUSE</em>' : ''}` +
       `<span class="amt">${fmtA(b.amount)} <small>${esc(cur())}</small></span></li>`;
   }).join('') || '<li class="empty"><b>No bets yet · Be the first</b><span>Bets appear here as they land</span></li>';
 }
@@ -1004,6 +1010,9 @@ function dockView() {
     forTxt: sel >= 0 ? `Backing <b>${esc(name)}</b> · ${mtag(sel)}` : 'No marble selected', disabled: true };
 
   // A09: the clock ran out, or the race has begun. A bet already placed stands. (A bet still in flight is shown below.)
+  if (tableNote && tableNote.kind === 'cancelled' && tableNote.id === betting.round) {
+    return { ...v, k: 'idle', forTxt: 'Round cancelled', label: `${ICON.lock}Round cancelled`, hint: esc(tableNote.message) };
+  }
   if (phase !== PHASE.BETTING || (betsClosed() && !inflight())) {
     return { ...v, k: 'idle', forTxt: 'Bets locked', label: `${ICON.lock}Betting closed`,
       hint: betting.placed ? `Your bet on ${esc(name)} stands · ${fmtA(betting.stake)} ${esc(cur())}`
@@ -1035,7 +1044,7 @@ function dockView() {
   }
   if (betting.placed) {                                                                                 // A06: final, nothing to press
     return { ...v, k: 'done', label: `${ICON.check}Bet placed`,
-      hint: `Locked once sent · ${fmtA(betting.stake)} ${esc(cur())} on ${esc(name)}` };
+      hint: `Locked once sent · ${fmtA(betting.stake)} ${esc(cur())} on ${esc(name)}` + quorumNote(' · ') };
   }
   if (betFail) {                                                                                        // A11a
     return { ...v, k: 'retry', disabled: false, onclick: pressBet, head: 'notice', notice: { tag: 'NOT PLACED', msg: betFail },
@@ -1053,7 +1062,13 @@ function dockView() {
   if (!betting.canAfford(betting.stake)) return { ...v, k: 'idle', label: 'Stake too high', hint: 'Choose a smaller stake' };
   const q = betting.quote(sel, betting.stake);                                                           // A02
   return { ...v, k: 'ready', disabled: false, onclick: pressBet, label: `<span class="bl"><span class="bt">Bet ${fmtA(betting.stake)}</span> <span class="bp">→ ${fmtAmount(q.payout)}</span></span>`,
-    hint: 'One bet per round · locked once sent' };
+    hint: quorumNote() || 'One bet per round · locked once sent' };
+}
+
+/** "2 of 3 players in · stakes returned if short" while a table with a minimum has not reached it. */
+function quorumNote(lead = '') {
+  const t = betting.tableInfo, need = t ? t.minPlayers : 0;
+  return need && betting.real < need ? `${lead}${betting.real} of ${need} players in${lead ? '' : ' · stakes returned if short'}` : '';
 }
 
 function renderBetButton() {
@@ -2154,6 +2169,79 @@ function sheetCard(overlay, card, close) {
 }
 sheetCard($('walletOverlay'), $('walletCard'), closeWallet);
 
+/* ------------------------------------ tables ------------------------------------ */
+//
+// A table is one race loop with its own pool. The chip beside the round tag names yours; the sheet
+// lists them all with the seats left, so a player can see where the people are and move.
+
+function renderTableChip() {
+  const t = betting.tableInfo, chip = $('tableChip');
+  if (!NET || !t) { chip.hidden = true; return; }
+  chip.hidden = false;
+  $('tableChipName').textContent = t.name;
+  $('tableRowTxt').textContent = t.name;
+  $('ringRnd').textContent = `${t.name} · Round ${betting.round}`;
+  const rule = t.minPlayers ? `needs ${t.minPlayers} players to race` : 'races every round';
+  chip.title = `${t.name}: ${rule}, ${t.maxPlayers} seats, ${t.bots === 'house' ? 'with labelled house stakes' : 'players only'}. Tap to change table.`;
+  chip.setAttribute('aria-label', `Table: ${t.name}. Change table`);
+}
+
+/** A message from the table: waiting for more players, a cancelled round, a move to another table. */
+function onNetNotice(d) {
+  if (d.kind === 'waiting' || d.kind === 'cancelled') tableNote = d;
+  const secs = d.kind === 'cancelled' && d.reopensAt ? Math.min(12, Math.max(4, (d.reopensAt - betting.now()) / 1000)) : 5;
+  announce(`<span class="msg">${esc(d.message)}</span>`, 'table', secs);
+  $('banner').dataset.k = d.kind;
+  lobbyShown = -1; dockLast = '';
+  renderBetButton();
+}
+
+/** The page is moving to another table: blank it until that table's round arrives. */
+function onNetSwitching(id) {
+  tableNote = null;
+  closeTables();
+  loadingNow = true; document.body.classList.add('loading');
+  $('tableChipName').textContent = betting.tableName(id);
+  renderTote(); renderFeed();
+}
+
+const TABLE_PHASE = { asleep: 'QUIET', betting: 'BETTING', countdown: 'STARTING', racing: 'RACING', results: 'RESULTS' };
+let tablesTimer = 0;
+function renderTables() {
+  const c = $('tableCard');
+  if (!c || $('tableOverlay').hidden) return;
+  const keep = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.table : null;
+  const list = betting.tables.length ? betting.tables : [];
+  const rows = list.map((t) => {
+    const taken = t.maxPlayers - t.seats, full = t.seats === 0;
+    const bits = [t.token || betting.currency, `${taken} of ${t.maxPlayers} seats`, t.minPlayers ? `needs ${t.minPlayers}` : 'always races', t.bots === 'house' ? 'house stakes' : 'players only'];
+    return `<button type="button" class="walletopt" data-table="${esc(t.id)}"${t.id === betting.tableId ? ' aria-current="true"' : ''}>` +
+      `<span class="wg" aria-hidden="true">${esc(t.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>` +
+      `<span class="wn">${esc(t.name)}<small>${esc(bits.join(' · '))}</small></span>` +
+      `<em class="wtag2${full ? ' low' : ''}">${full ? 'FULL' : (t.id === betting.tableId ? 'YOU ARE HERE' : TABLE_PHASE[t.phase] || '')}</em></button>`;
+  }).join('') || '<p class="wnote dim">Loading tables…</p>';
+  c.innerHTML = GRAB + `<h2 class="wtitle" id="tableTitle">Choose a table</h2>` +
+    `<p class="wnote">Everyone at a table watches the same race and shares one pool. A table needs its minimum number of players: short of it, the round is cancelled and every stake is returned.</p>` +
+    `<div class="wlist">${rows}</div><button type="button" class="wbtn ghost" id="tableClose">Close</button>`;
+  c.setAttribute('role', 'dialog'); c.setAttribute('aria-modal', 'true'); c.setAttribute('aria-labelledby', 'tableTitle');
+  c.querySelectorAll('[data-table]').forEach((b) => { b.onclick = () => { if (b.dataset.table !== betting.tableId) betting.switchTable(b.dataset.table, true); else closeTables(); }; });
+  $('tableClose').onclick = closeTables;
+  if (keep) { const again = c.querySelector(`[data-table="${CSS.escape(keep)}"]`); if (again) try { again.focus({ preventScroll: true }); } catch (_) { /* gone */ } }
+}
+function openTables() {
+  if (!NET) return;
+  $('tableOverlay').hidden = false;
+  renderTables();
+  betting.refreshTables().then(renderTables);
+  clearInterval(tablesTimer);
+  tablesTimer = setInterval(() => betting.refreshTables().then(renderTables), 3000);
+  try { $('tableCard').focus({ preventScroll: true }); } catch (_) { /* nothing */ }
+}
+function closeTables() { clearInterval(tablesTimer); $('tableOverlay').hidden = true; $('tableCard').style.transform = ''; }
+sheetCard($('tableOverlay'), $('tableCard'), closeTables);
+$('tableChip').onclick = openTables;
+$('tableRow').onclick = openTables;
+
 /* ------------------------------ the round proof card (B1 to B3) ------------------------------ */
 
 const SVG_SHIELD = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>';
@@ -2320,6 +2408,8 @@ $('camToggle').onclick = () => {
       changed: () => { renderTote(); renderWallet(); renderStakes(); renderBetButton(); },
       error: (msg) => announce(`<span class="msg">${esc(msg)}</span>`, 'out'),
       betFailed: onBetFailed,
+      notice: onNetNotice,
+      switching: onNetSwitching,
     });
   } else newRound();
   requestAnimationFrame(frame);
@@ -2336,6 +2426,7 @@ window.__mr2d = {
   get net() { return NET; },
   get drift() { return { mine: Object.fromEntries(mySecond), server: Object.fromEntries(srvSecond) }; },
   get netRound() { return netRound; },
+  get tableNote() { return tableNote; },
   get bettingLive() { return betting; },
   pause(on = true) { paused = on; },
   /** Run `n` frames by hand (16.7 ms each), for when the pane is hidden and the browser has paused requestAnimationFrame. */

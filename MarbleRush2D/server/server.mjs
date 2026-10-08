@@ -386,7 +386,7 @@ export async function openRound(table = defaultTable()) {
   const minBet = tok ? tok.minBet : MIN_BET;
   const t = now();
   const round = table.round = {
-    id: roundNo, tableId: table.id, tableName: table.name, cfg: table.cfg, courseSeed, raceSeed, commitment: sha256(raceSeed), token, minBet, inflight: new Map(),
+    id: roundNo, tableId: table.id, family: table.family, tableName: table.name, cfg: table.cfg, courseSeed, raceSeed, commitment: sha256(raceSeed), token, minBet, inflight: new Map(),
     chain: { commit: { status: chain ? 'pending' : 'off' }, reveal: { status: chain ? 'idle' : 'off' } },
     lanes, result, sync, layout,
     phase: 'betting', opensAt: t, closesAt: t + T.lobby * 1000,
@@ -423,7 +423,7 @@ function publicRound(r) {
 /** What a browser needs to know about the table this round belongs to. */
 function tableInfo(r) {
   const c = r.cfg;
-  return { id: r.tableId, name: r.tableName, minPlayers: c.minPlayers, maxPlayers: c.maxPlayers, bots: c.bots };
+  return { id: r.tableId, family: r.family, name: r.tableName, minPlayers: c.minPlayers, maxPlayers: c.maxPlayers, bots: c.bots };
 }
 
 function connectedPlayers(tableId) {
@@ -674,8 +674,8 @@ async function api(req, res, url) {
     const round = table.round;
     if (pid) {
       const w = wallet(pid);
-      send(res, 'hello', { pid, name: w.name, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, table: table.id, history: w.history, stats: w.stats, now: now(), timing: T });
-    } else send(res, 'hello', { guest: true, print: PRINT, code: CODE, balance: 0, history: [], stats: null, table: table.id, now: now(), timing: T });
+      send(res, 'hello', { pid, name: w.name, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, table: table.id, family: table.family, history: w.history, stats: w.stats, now: now(), timing: T });
+    } else send(res, 'hello', { guest: true, print: PRINT, code: CODE, balance: 0, history: [], stats: null, table: table.id, family: table.family, now: now(), timing: T });
     send(res, 'round', publicRound(round));
     send(res, 'chain', chainMsg(round));
     if (pid && round.phase === 'results') send(res, 'settled', settledFor(pid, round));
