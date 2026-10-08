@@ -18,7 +18,7 @@ Please report vulnerabilities privately to the maintainers (open a private secur
 - Strict `Content-Security-Policy` (scripts from our own origin only), `nosniff`, no framing, no referrer, HSTS on HTTPS.
 - The server serves only the page, its CSS and scripts, and three shared modules; server code, tools, data and the README are not reachable.
 - POSTs must come from our own origin; no CORS headers are sent.
-- Rate limits (all keyed on the real client address; behind a proxy set `MR_TRUST_PROXY=1`, or every visitor shares the proxy's address): API calls per address, sign-in nonces per address, bet builds per player, open streams per address, faucet per address and per day.
+- Rate limits (all keyed on the real client address; behind a proxy set `MR_TRUST_PROXY=1`, or `fly` on Fly.io only, or every visitor shares the proxy's address): API calls per address, sign-in nonces per address, bet builds per player, open streams per address, faucet per address and per day.
 - The faucet and the round memos stop before the house wallet runs out of SOL, so payouts are the last thing to run dry.
 - A server restart mid-round refunds that round's bets (they are saved as they land) and continues the round numbering. A round's commit memo carries a hash of the race code and the git revision.
 - Payouts are written to disk with their signature before being sent, and are checked against the cluster after a crash, so they are neither lost nor paid twice.

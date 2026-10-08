@@ -29,7 +29,8 @@
 
 import http from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -49,7 +50,7 @@ let CODE = { hash: '', rev: 'nogit', files: CODE_FILES };      // filled in at s
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');            // project root: serves /MarbleRush2D and /js
 const DATA = process.env.MR_DATA || path.join(HERE, 'data');
-const PORT = +(process.env.MR_PORT || 8090);
+const PORT = +(process.env.MR_PORT || process.env.PORT || 8090);          // PORT is what hosts hand us
 
 /** Round timing, seconds. */
 export const T = {
@@ -663,7 +664,10 @@ setInterval(() => { for (const res of clients.keys()) res.write(': keep-alive\n\
 
 /** The caller's address. Behind a proxy (MR_TRUST_PROXY=1) it is the last hop the proxy appended; otherwise the socket's. */
 const clientIp = (req) => {
-  if (process.env.MR_TRUST_PROXY === '1') {
+  // MR_TRUST_PROXY=fly: Fly.io's edge sets Fly-Client-IP itself and overwrites any copy a client sends. Only ever
+  // set this when the server is reachable ONLY through Fly: anywhere else a client could send that header.
+  if (process.env.MR_TRUST_PROXY === 'fly' && req.headers['fly-client-ip']) return String(req.headers['fly-client-ip']).trim();
+  if (process.env.MR_TRUST_PROXY === '1' || process.env.MR_TRUST_PROXY === 'fly') {
     const f = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
     if (f.length) return f[f.length - 1];
   }
@@ -898,6 +902,15 @@ async function api(req, res, url) {
   return json(res, 404, { error: 'unknown endpoint' });
 }
 
+const staticCache = new Map();   // file -> { mtimeMs, body, gz, etag }
+const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg']);
+/** The page's preview image must be an absolute URL for link scrapers: fill it in from the address the request came to. */
+function absolutize(html, req) {
+  const proto = req.headers['x-forwarded-proto'] === 'https' || process.env.MR_SECURE === '1' ? 'https' : 'http';
+  const origin = `${proto}://${req.headers.host}`;
+  return html.replace(/(<meta (?:property|name)="(?:og|twitter):image" content=")(assets\/[^"]+)"/g, (_, a, b) => `${a}${origin}/MarbleRush2D/${b}"`);
+}
+
 async function statics(req, res, url) {
   let rel;
   try { rel = decodeURIComponent(url.pathname).replace(/^\/+/, ''); } catch { res.writeHead(400); return res.end('bad request'); }
@@ -909,8 +922,27 @@ async function statics(req, res, url) {
     res.writeHead(404); return res.end('not found');
   }
   try {
-    const body = await readFile(file);
-    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
+    const ext = path.extname(file);
+    const mtimeMs = (await stat(file)).mtimeMs;
+    const isIndex = rel === 'MarbleRush2D/index.html';
+    let hit = staticCache.get(file);
+    if (!hit || hit.mtimeMs !== mtimeMs) {
+      const body = await readFile(file);
+      hit = { mtimeMs, body, gz: COMPRESSIBLE.has(ext) ? gzipSync(body, { level: 9 }) : null, etag: `"${createHash('sha1').update(body).digest('hex').slice(0, 16)}"` };
+      staticCache.set(file, hit);
+    }
+    // The page's own address is part of the index (og:image), so it is built per request and not cached.
+    const body = isIndex ? Buffer.from(absolutize(hit.body.toString('utf8'), req)) : hit.body;
+    const etag = isIndex ? `"${createHash('sha1').update(body).digest('hex').slice(0, 16)}"` : hit.etag;
+    const headers = { 'content-type': TYPES[ext] || 'application/octet-stream', 'cache-control': 'no-cache', etag, vary: 'accept-encoding' };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+    const wantsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] || '')) && COMPRESSIBLE.has(ext);
+    if (wantsGzip) {
+      headers['content-encoding'] = 'gzip';
+      const out = isIndex ? gzipSync(body) : hit.gz;
+      res.writeHead(200, headers); return res.end(out);
+    }
+    res.writeHead(200, headers);
     res.end(body);
   } catch { res.writeHead(404); res.end('not found'); }
 }
@@ -927,6 +959,8 @@ export async function start(port = PORT) {
     if (chain) { try { console.log(`[chain] house wallet ${(await chain.authoritySol()).toFixed(4)} SOL` + (await chain.solAtLeast(0.05) ? '' : '  <-- LOW: top up before the faucet and bets pause')); } catch { /* offline */ } }
     console.log(chain ? `[chain] ${chain.cluster}, tokens ${[...chain.tokens.keys()].join(', ')}, authority ${chain.authority.publicKey.toBase58()}` : '[chain] not set up: demo money only');
   } catch (e) { console.error('[chain] could not open:', scrub(e)); }
+  // A public deploy must never fall back to play money because a secret was not set: stop instead.
+  if (process.env.MR_REQUIRE_CHAIN === '1' && !chain) throw new Error('MR_REQUIRE_CHAIN=1 but the chain did not open (is MR_AUTHORITY_KEY set and chain.json in the data folder?)');
   await recoverRound();
   await loadTables();
   setInterval(() => { for (const t of tables.values()) tick(t); }, 100);

@@ -13,7 +13,8 @@
     "verify-round": "node MarbleRush2D/tools/verify-round.mjs",
     "dev": "node --watch MarbleRush2D/server/server.mjs",
     "test:load": "node MarbleRush2D/tools/load-e2e.mjs",
-    "test:chain-load": "node MarbleRush2D/tools/chain-load-e2e.mjs"
+    "test:chain-load": "node MarbleRush2D/tools/chain-load-e2e.mjs",
+    "test:deploy": "node MarbleRush2D/tools/deploy-check.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "0.4.15",

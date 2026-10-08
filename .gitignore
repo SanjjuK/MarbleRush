@@ -10,6 +10,11 @@
 !/README.md
 !/SECURITY.md
 !/HOW-RACES-WORK.md
+!/DEPLOY.md
+!/Dockerfile
+!/.dockerignore
+!/docker-entrypoint.sh
+!/fly.toml
 
 # Inside the allowed folders, still leave out:
 .DS_Store

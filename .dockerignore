@@ -1,0 +1,26 @@
+# Nothing secret and nothing that changes at runtime goes into the image.
+.git
+.gitignore
+node_modules
+**/node_modules
+.claude
+**/.DS_Store
+.env
+.env.*
+*.pem
+*.key
+**/authority.json
+**/rpc-url.txt
+**/test-wallets.json
+**/*keypair*.json
+
+# Runtime data: everything but the public chain.json (token addresses), which the entrypoint seeds onto the volume.
+MarbleRush2D/server/data/*
+!MarbleRush2D/server/data/chain.json
+
+# Not part of the running game.
+MarbleRush2D/MarbleRush2D_antigravity
+MarbleRush2D/design
+MarbleRush2D/tools
+*.md
+design-kickoff.md

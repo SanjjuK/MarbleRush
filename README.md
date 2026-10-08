@@ -62,7 +62,7 @@ Configuration (all optional):
 
 | Variable | Meaning |
 |---|---|
-| `MR_PORT` | listen port (default 8090) |
+| `PORT` / `MR_PORT` | listen port (`MR_PORT`, else `PORT` as hosts set it, else 8090) |
 | `MR_RPC` | Solana RPC URL. Else the first line of `server/data/rpc-url.txt`, else the public devnet node |
 | `MR_AUTHORITY_KEY` | the server key as a JSON byte array, instead of `server/data/authority.json` |
 | `MR_NO_WORKER=1` | race on the main thread instead of worker threads |
@@ -70,10 +70,12 @@ Configuration (all optional):
 | `MR_CHAIN_DIR` | where the chain files live (default `server/data`) |
 | `MR_FEE_PAYER=player` | players pay their own fee (fallback if a wallet refuses server-paid fees) |
 | `MR_TRUST_PROXY=1` | behind a reverse proxy: take the client address from `X-Forwarded-For` |
+| `MR_TRUST_PROXY=fly` | behind Fly.io only: take it from `Fly-Client-IP` (a visitor could send that header anywhere else) |
+| `MR_REQUIRE_CHAIN=1` | refuse to start if the chain does not open (a public deploy must not fall back to demo money) |
 | `MR_SECURE=1` | always set the Secure cookie flag (also automatic on `X-Forwarded-Proto: https`) |
 | `MR_FAUCET_PER_IP`, `MR_FAUCET_PER_DAY` | faucet limits (default 3 per address, 150 per day) |
 
-Serve it over HTTPS in public: the session cookie and wallet signatures depend on it.
+Serve it over HTTPS in public: the session cookie and wallet signatures depend on it. Deploying to Fly.io: see [DEPLOY.md](DEPLOY.md).
 
 ## Changing the game while the server runs
 
@@ -87,6 +89,7 @@ Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, a
 
 ```bash
 npm run test:e2e     # round server, wallet sign-in, security checks, table rules: minimum, cancel, seats, sleep (no chain needed)
+npm run test:deploy  # starts the server as a host does (secrets as environment variables, PORT, proxy headers)
 npm run test:load    # 100 simulated players over several tables (a few minutes, no chain)
 npm run test:chain   # real devnet: a sealed and verified round, signed bets, refunds, payouts, a server killed mid-round, a live round cancelled for too few players (needs chain:setup and a little SOL)
 ```

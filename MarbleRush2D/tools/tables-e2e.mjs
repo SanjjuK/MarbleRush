@@ -9,6 +9,7 @@
 //   - a live round with too few players waits one more lobby, then is cancelled and every stake returns
 //   - with enough players it races with only their money in the pool and pays out of exactly that pool
 //   - the fifth bettor at a four-seat table is turned away
+import http from 'node:http';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +23,7 @@ process.env.MR_TABLES = join(dir, 'tables.json');
 process.env.MR_DATA = join(dir, 'data');
 process.env.MR_LOBBY = '4';
 process.env.MR_BLOCKS = '6';
+process.env.MR_TRUST_PROXY = 'fly';
 
 const logs = [];
 const realLog = console.log;
@@ -143,6 +145,31 @@ const live = st.recent.find(r => r.id === r2.data.id);
 check(!!live && live.bettors === 4 && live.pool === stake && live.order.length === 5, 'stats: the latest-rounds list has the raced round with its pool and finishing order');
 check(!JSON.stringify(st).includes(A.w.address) && !JSON.stringify(st).includes(B.w.address), 'stats: no wallet address appears anywhere in the public numbers');
 check((await fetch(`${base}/MarbleRush2D/stats.html`)).status === 200 && (await fetch(`${base}/MarbleRush2D/js/stats.js`)).status === 200, 'the stats page is served');
+
+// --- serving: compression, revalidation, a link-preview image that is an absolute address, the client address behind Fly ----
+{
+  const plain = await fetch(`${base}/MarbleRush2D/index.html`, { headers: { 'accept-encoding': 'identity' } });
+  const text = await plain.text();
+  const gz = await fetch(`${base}/MarbleRush2D/js/main2d.js`, { headers: { 'accept-encoding': 'gzip' } });
+  const raw = await fetch(`${base}/MarbleRush2D/js/main2d.js`, { headers: { 'accept-encoding': 'identity' } });
+  await gz.arrayBuffer();
+  const rawBytes = (await raw.arrayBuffer()).byteLength;
+  // fetch unzips for us, so count the bytes that actually crossed the wire with http
+  const gzBytes = await new Promise((ok, no) => http.get(`${base}/MarbleRush2D/js/main2d.js`, { headers: { 'accept-encoding': 'gzip' } }, (r) => { let n = 0; r.on('data', c => n += c.length); r.on('end', () => ok(n)); }).on('error', no));
+  check(gz.headers.get('content-encoding') === 'gzip' && !raw.headers.get('content-encoding'), 'serving: scripts are compressed for a browser that accepts gzip');
+  check(gzBytes < rawBytes / 3, `serving: and much smaller (${(rawBytes / 1024).toFixed(0)} KB to ${(gzBytes / 1024).toFixed(0)} KB)`);
+  const etag = plain.headers.get('etag');
+  const again = await fetch(`${base}/MarbleRush2D/js/main2d.js`, { headers: { 'if-none-match': raw.headers.get('etag') } });
+  check(!!etag && again.status === 304, 'serving: a repeat visit is answered 304, with no body');
+  check(text.includes(`og:image" content="http://localhost:${PORT}/MarbleRush2D/assets/og.png"`) && text.includes(`twitter:image" content="http://localhost:${PORT}/MarbleRush2D/assets/og.png"`), 'serving: the link-preview image is an absolute address');
+  // behind Fly the client address is Fly-Client-IP: 14 sign-in nonces from 14 different visitors must all be allowed,
+  // and the 13th from the same visitor must not
+  const visit = (ip) => fetch(`${base}/api/auth/nonce`, { method: 'POST', body: JSON.stringify({ address: newWallet().address }), headers: { 'fly-client-ip': ip } }).then(r => r.status);
+  const many = await Promise.all(Array.from({ length: 14 }, (_, i) => visit(`198.51.100.${i + 1}`)));
+  const same = []; for (let i = 0; i < 14; i++) same.push(await visit('203.0.113.9'));
+  check(many.every(c => c === 200), 'proxy: 14 different visitors can all sign in (the limit is per visitor, not per proxy)');
+  check(same.slice(0, 12).every(c => c === 200) && same.slice(12).every(c => c === 429), 'proxy: one visitor is limited to 12 sign-ins a minute');
+}
 
 // --- tables sleep when the room is empty ------------------------------------------------------------
 for (const s of [spec, sA, sB, sC, sD, sE, sE2]) s.close();
