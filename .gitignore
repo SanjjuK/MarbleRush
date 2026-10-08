@@ -9,6 +9,7 @@
 !/package-lock.json
 !/README.md
 !/SECURITY.md
+!/HOW-RACES-WORK.md
 
 # Inside the allowed folders, still leave out:
 .DS_Store

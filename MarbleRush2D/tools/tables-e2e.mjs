@@ -134,6 +134,16 @@ const finals = await Promise.all([A, B, C, D].map(balanceOf));
 const paidOut = finals.reduce((a, x) => a + x, 0) - 4 * 1000 + stake;
 check(paidOut <= stake * (1 - RAKE) + 1e-6, `players are paid at most the pool minus the rake (${paidOut.toFixed(2)} of ${(stake * (1 - RAKE)).toFixed(2)})`);
 
+// --- the public numbers add up -------------------------------------------------------------------
+const st = await (await fetch(`${base}/api/stats`)).json();
+const demo = st.tokens.DEMO;
+check(st.totals.players >= 4 && st.totals.cancelled >= 1 && demo.cancelledRefunded >= 75, 'stats: players counted, the cancelled rounds counted, their stakes shown as returned');
+check(Math.abs(demo.houseNet - stake * RAKE) < 1e-6, `stats: with no house stakes in the pool the house kept exactly the rake (${demo.houseNet.toFixed(2)} of ${stake})`);
+const live = st.recent.find(r => r.id === r2.data.id);
+check(!!live && live.bettors === 4 && live.pool === stake && live.order.length === 5, 'stats: the latest-rounds list has the raced round with its pool and finishing order');
+check(!JSON.stringify(st).includes(A.w.address) && !JSON.stringify(st).includes(B.w.address), 'stats: no wallet address appears anywhere in the public numbers');
+check((await fetch(`${base}/MarbleRush2D/stats.html`)).status === 200 && (await fetch(`${base}/MarbleRush2D/js/stats.js`)).status === 200, 'the stats page is served');
+
 // --- tables sleep when the room is empty ------------------------------------------------------------
 for (const s of [spec, sA, sB, sC, sD, sE, sE2]) s.close();
 await sleep(1000);

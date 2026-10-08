@@ -104,6 +104,81 @@ function wallet(pid) {
   return w;
 }
 
+
+/* -------------------------------- stats --------------------------------- */
+//
+// What the public stats page shows: how many people have played, how many rounds were raced, how much
+// was staked and paid, what the house kept, which rounds were cancelled and refunded, and the latest
+// rounds with the Solana signatures that prove them. No addresses: players are counted by a short hash.
+
+const STATS_FILE = () => path.join(DATA, 'stats.json');
+let stats = { since: Date.now(), raced: 0, cancelled: 0, bets: 0, players: [], tokens: {}, recent: [] };
+const playerSet = new Set();
+let statsDirty = false;
+const tokStats = (sym) => (stats.tokens[sym] ||= { staked: 0, paid: 0, voided: 0, bets: 0, rounds: 0, cancelledRefunded: 0 });
+const playerKey = (pid) => createHash('sha256').update(pid).digest('hex').slice(0, 12);
+
+async function loadStats() {
+  try { stats = { ...stats, ...JSON.parse(await readFile(STATS_FILE(), 'utf8')) }; } catch { /* first run */ }
+  for (const k of stats.players) playerSet.add(k);
+}
+async function saveStats() {
+  if (!statsDirty) return;
+  statsDirty = false;
+  const out = { ...stats, players: [...playerSet].slice(-200000), recent: stats.recent.map(viewRound) };
+  await mkdir(DATA, { recursive: true });
+  await writeFile(STATS_FILE(), JSON.stringify(out));
+}
+setInterval(() => saveStats().catch(e => console.error('[stats]', e)), 5000).unref();
+
+function pushRecent(entry) {
+  stats.recent.unshift(entry);
+  if (stats.recent.length > 30) stats.recent.length = 30;
+  statsDirty = true;
+}
+/** A recent round as the page sees it: signatures resolved from the live round, or as last saved. */
+function viewRound(e) {
+  const { chain: c, ...rest } = e;
+  if (!c) return rest;
+  return { ...rest, commit: c.commit.sig || null, reveal: c.reveal.sig || null, payouts: payoutSummary(e.id).sigs };
+}
+
+/** A raced round: count the players' money (house stakes are not players' money). */
+function recordRaced(r, per) {
+  const real = realBets(r), t = tokStats(r.token || 'DEMO');
+  let staked = 0, paid = 0, voided = 0;
+  for (const b of real) {
+    const p = per[b.pid];
+    staked += b.amount;
+    if (p.void) voided += p.payout; else paid += p.payout;
+    playerSet.add(playerKey(b.pid));
+  }
+  Object.assign(t, { staked: t.staked + staked, paid: t.paid + paid, voided: t.voided + voided, bets: t.bets + real.length, rounds: t.rounds + 1 });
+  stats.raced += 1; stats.bets += real.length;
+  pushRecent({ id: r.id, table: r.tableId, name: r.tableName, token: r.token || 'DEMO', at: now(), bettors: real.length, pool: r.settled.totalPool,
+    order: r.result.finishOrder, commitment: r.commitment, chain: r.chain });
+}
+/** A round that was cancelled with players in it: the stakes went back. */
+function recordCancelled(r, real) {
+  if (!real.length) return;                          // an empty table backing off is not news
+  tokStats(r.token || 'DEMO').cancelledRefunded += real.reduce((a, b) => a + b.amount, 0);
+  stats.cancelled += 1;
+  pushRecent({ id: r.id, table: r.tableId, name: r.tableName, token: r.token || 'DEMO', at: now(), bettors: real.length, pool: 0, cancelled: r.cancelled, chain: r.chain });
+}
+
+function statsView() {
+  const tokens = {};
+  for (const [sym, t] of Object.entries(stats.tokens)) tokens[sym] = { ...t, houseNet: t.staked - t.paid - t.voided };
+  const summaries = [...tables.values()].map(tableSummary);
+  return {
+    now: now(), since: stats.since, cluster: chain ? chain.cluster : null,
+    totals: { players: playerSet.size, rounds: stats.raced, cancelled: stats.cancelled, bets: stats.bets },
+    tokens,
+    live: { tables: summaries, connections: clients.size, bettors: summaries.reduce((a, t) => a + t.bettors, 0) },
+    recent: stats.recent.map(viewRound),
+  };
+}
+
 /* -------------------------------- bots ---------------------------------- */
 
 const BOT_HANDLES = [
@@ -481,6 +556,7 @@ function cancelRound(table, r, reason) {
   } else {
     for (const b of real) { const w = wallet(b.pid); w.balance += b.amount; w.stats.races -= 1; w.stats.wagered -= b.amount; walletsDirty = true; }
   }
+  recordCancelled(r, real);
   saveRoundState(r);
   console.log(`[round ${r.id}] cancelled: ${reason}; ${real.length} bet(s) refunded`);
   broadcast('notice', { id: r.id, kind: 'cancelled', reopensAt: r.nextAt, message: real.length ? `Round cancelled: ${reason}. Stakes returned.` : `Waiting for players: ${reason}.` }, r.tableId);
@@ -517,6 +593,7 @@ function settle(r) {
     walletsDirty = true;
   }
   r.settled = { per, totalPool: total, rake: total * RAKE, netPool: net };
+  recordRaced(r, per);
   r.payouts = r.token ? r.bets.filter(b => b.pid && per[b.pid].payout > 0).map(b => ({ owner: b.pid, amount: per[b.pid].payout })) : [];
 }
 
@@ -634,7 +711,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 // project folder (backups, logs, the wallets file) is reachable.
 // The page itself, its styles and scripts, and the three shared modules it imports. The server code, the
 // QA tools, the README and the data folder are NOT served.
-const SERVED = [/^MarbleRush2D\/index\.html$/, /^MarbleRush2D\/css\/[\w.-]+$/, /^MarbleRush2D\/assets\/[\w-]+\.(png|svg)$/, /^MarbleRush2D\/js\/(vendor\/)?[\w.-]+\.js$/, /^js\/(rng|racers|betting)\.js$/];
+const SERVED = [/^MarbleRush2D\/(index|stats)\.html$/, /^MarbleRush2D\/css\/[\w.-]+$/, /^MarbleRush2D\/assets\/[\w-]+\.(png|svg)$/, /^MarbleRush2D\/js\/(vendor\/)?[\w.-]+\.js$/, /^js\/(rng|racers|betting)\.js$/];
 
 function json(res, code, body) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -655,6 +732,7 @@ const cookie = (req, value, maxAge) =>
 async function api(req, res, url) {
   if (url.pathname === '/api/ping') return json(res, 200, { marblerush: true, now: now() });
   if (url.pathname === '/api/chain') return json(res, 200, chain ? chain.publicInfo() : { cluster: null, tokens: [] });
+  if (url.pathname === '/api/stats') return json(res, 200, statsView());
   if (url.pathname === '/api/tables') return json(res, 200, { tables: [...tables.values()].map(tableSummary), now: now() });
   const token = parseCookie(req.headers.cookie, COOKIE);
   const pid = auth.sessionPid(token);                       // null: a spectator
@@ -842,6 +920,7 @@ export async function start(port = PORT) {
   console.log(`[code] race code ${CODE.hash} (${CODE.rev})`);
   await loadWallets();
   await auth.load();
+  await loadStats();
   try {
     chain = await openChain({ dataDir: process.env.MR_CHAIN_DIR || DATA });
     try { jobs = JSON.parse(await readFile(JOBS_FILE(), 'utf8')); runJobs(); } catch { /* none yet */ }

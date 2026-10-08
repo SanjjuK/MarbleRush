@@ -2225,7 +2225,7 @@ function renderTables() {
   }).join('') || '<p class="wnote dim">Loading tables…</p>';
   c.innerHTML = GRAB + `<h2 class="wtitle" id="tableTitle">Choose a table</h2>` +
     `<p class="wnote">Everyone at a table watches the same race and shares one pool. A table needs its minimum number of players: short of it, the round is cancelled and every stake is returned.</p>` +
-    `<div class="wlist">${rows}</div><button type="button" class="wbtn ghost" id="tableClose">Close</button>`;
+    `<div class="wlist">${rows}</div><a class="wlink" href="stats.html" target="_blank" rel="noopener">Live stats and verified rounds</a><button type="button" class="wbtn ghost" id="tableClose">Close</button>`;
   c.setAttribute('role', 'dialog'); c.setAttribute('aria-modal', 'true'); c.setAttribute('aria-labelledby', 'tableTitle');
   c.querySelectorAll('[data-table]').forEach((b) => { b.onclick = () => { if (b.dataset.table !== betting.tableId) betting.switchTable(b.dataset.table, true); else closeTables(); }; });
   $('tableClose').onclick = closeTables;

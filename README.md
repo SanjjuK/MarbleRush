@@ -14,6 +14,8 @@ Live parimutuel marble racing on Solana. Everyone watches the same race. You bac
 
 ## Tables
 
+> The full account of when a race runs, who is in it, what the house can lose and what was measured is in [HOW-RACES-WORK.md](HOW-RACES-WORK.md). Live numbers: `/MarbleRush2D/stats.html`.
+
 A **table** is one independent race loop with its own pool, set in `MarbleRush2D/server/tables.json`:
 
 | Setting | Meaning |
@@ -103,6 +105,9 @@ MarbleRush2D/
   server/auth.mjs             wallet sign-in and sessions
   server/chain.mjs            tokens, faucet, bets, payouts, memos
   server/tokens.json          the token list
+  server/tables.json          the tables: minimum and maximum players, house stakes
+  server/racesim.mjs          the race, computed on worker threads
+  stats.html, js/stats.js     the public stats page (reads /api/stats)
   tools/                      verify-round, chain setup, end-to-end tests, QA harnesses
 js/                           rng.js, racers.js, betting.js shared with the engine
 ```

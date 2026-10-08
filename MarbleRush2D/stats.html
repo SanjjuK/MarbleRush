@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-palette="ivory">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0E0C0A" />
+<title>MarbleRush · Live stats</title>
+<meta name="description" content="Players, rounds, volume and the latest sealed and revealed rounds on Solana. Devnet prototype." />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap" />
+<script src="js/palette.js"></script>
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/stats.css" />
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="./" aria-label="MarbleRush, back to the game"><span class="word">Marble<em>Rush</em></span></a>
+    <span class="devnet" title="Solana devnet: test money only, no real funds">DEVNET</span>
+    <span class="grow"></span>
+    <span class="upd" id="upd" role="status" aria-live="polite">Loading…</span>
+    <a class="play" href="./">Play</a>
+  </header>
+
+  <main>
+    <h1>Live stats</h1>
+    <p class="lede">These numbers come from the round server. On devnet-token rounds each round is sealed on Solana before betting and revealed after the race, and the latest rounds below link to both transactions and to the payout.</p>
+
+    <section class="tiles" aria-label="Totals">
+      <div class="tile"><span class="lbl">Players</span><b id="tPlayers">-</b><small>distinct wallets that have bet</small></div>
+      <div class="tile"><span class="lbl">Rounds raced</span><b id="tRounds">-</b><small id="tRoundsNote">&nbsp;</small></div>
+      <div class="tile"><span class="lbl">Bets placed</span><b id="tBets">-</b><small>players' bets, house stakes excluded</small></div>
+      <div class="tile"><span class="lbl">Cancelled rounds</span><b id="tCancel">-</b><small>stakes returned in full</small></div>
+    </section>
+
+    <h2>Money by token</h2>
+    <div class="scroll"><table class="grid" id="tokens">
+      <thead><tr><th>Token</th><th class="n">Staked</th><th class="n">Paid out</th><th class="n">Kept by house</th><th class="n">Returned (cancelled)</th><th class="n">Rounds</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="note">"Kept by house" is what players staked minus what they were paid. On a table with no house stakes it is exactly the 5% rake; on Practice it also moves with the house's own stakes.</p>
+
+    <h2>Tables right now <span class="count" id="liveNote"></span></h2>
+    <div class="scroll"><table class="grid" id="tables">
+      <thead><tr><th>Table</th><th>Token</th><th>State</th><th class="n">Bettors</th><th class="n">Seats left</th><th class="n">Watching</th><th>Rule</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+
+    <h2>Latest rounds</h2>
+    <div class="scroll"><table class="grid" id="recent">
+      <thead><tr><th class="n">Round</th><th>Table</th><th class="n">Bettors</th><th class="n">Pool</th><th>Result</th><th>On Solana</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="note">Check any round yourself: <code>node MarbleRush2D/tools/verify-round.mjs &lt;reveal signature&gt;</code> reads both memos from the chain, checks the seed against the hash, checks the commit came first, and replays the race.</p>
+  </main>
+
+  <script type="module" src="js/stats.js"></script>
+</body>
+</html>
