@@ -1,0 +1,49 @@
+/* The public stats page: tokens.css plus a quiet page of tiles and tables. No game UI here. */
+* { box-sizing: border-box; }
+html { background: var(--bg); color-scheme: dark; }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text-1); font: 400 var(--fs-md)/1.5 var(--font-ui); -webkit-font-smoothing: antialiased; }
+a { color: var(--text-1); text-underline-offset: 3px; }
+code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: .92em; color: var(--text-1); }
+[hidden] { display: none !important; }
+
+.bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); background: var(--glass); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); border-bottom: 1px solid var(--line); }
+.brand { text-decoration: none; }
+.word { font: 600 26px/1 var(--font-data); letter-spacing: -.01em; color: var(--text-1); }
+.word em { font-style: normal; font-weight: 700; color: var(--celebrate); }
+.devnet { height: 24px; padding: 0 var(--s1); display: inline-flex; align-items: center; border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .16em; color: var(--text-2); }
+.grow { flex: 1; }
+.upd { font: 500 var(--fs-sm) var(--font-data); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.play { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 var(--s3); border-radius: var(--r-pill); background: var(--accent); color: var(--accent-ink); font: 600 var(--fs-md) var(--font-ui); text-decoration: none; }
+
+main { max-width: 1080px; margin: 0 auto; padding: var(--s4) var(--s2) var(--s8); }
+h1 { margin: 0 0 var(--s1); font: 600 var(--fs-3xl)/1.05 var(--font-data); letter-spacing: -.01em; }
+h2 { margin: var(--s5) 0 var(--s1); font: 600 var(--fs-xl) var(--font-ui); letter-spacing: -.01em; }
+h2 .count { font: 500 var(--fs-sm) var(--font-data); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); margin-left: var(--s1); }
+.lede { max-width: 62ch; margin: 0 0 var(--s3); color: var(--text-2); }
+.note { margin: var(--s1) 0 0; max-width: 78ch; font-size: var(--fs-sm); color: var(--text-2); }
+
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s2); }
+.tile { display: flex; flex-direction: column; gap: var(--s-half); padding: var(--s2) var(--s3); border-radius: var(--r-md); background: var(--surface-1); border: 1px solid var(--line); }
+.tile .lbl { font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.tile b { font: 700 var(--fs-4xl)/1 var(--font-data); font-variant-numeric: tabular-nums; }
+.tile small { color: var(--text-2); font-size: var(--fs-sm); }
+
+.scroll { overflow-x: auto; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-1); }
+.grid { width: 100%; border-collapse: collapse; min-width: 640px; }
+.grid th { padding: var(--s1) var(--s2); text-align: left; font: 600 var(--fs-xs) var(--font-data); letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.grid td { padding: 12px var(--s2); border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.grid tr:last-child td { border-bottom: 0; }
+.grid .n { text-align: right; font-variant-numeric: tabular-nums; }
+.grid td small { display: block; color: var(--text-2); font-size: var(--fs-sm); }
+.grid .empty { text-align: center; color: var(--text-2); padding: var(--s3); }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--r-xs); background: var(--surface-3); color: var(--text-2); font: 700 var(--fs-xs) var(--font-data); letter-spacing: .12em; }
+.tag.cancel { background: transparent; box-shadow: 0 0 0 1px var(--text-2) inset; color: var(--text-1); }
+.sigs { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.sigs a { font: 600 var(--fs-sm) var(--font-data); letter-spacing: .06em; }
+
+@media (max-width: 900px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .tile b { font-size: var(--fs-3xl); }
+  h1 { font-size: var(--fs-2xl); }
+  .upd { display: none; }
+}

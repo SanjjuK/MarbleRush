@@ -55,6 +55,10 @@
       </h1>
       <span class="brand-sep" aria-hidden="true"></span>
       <span class="tag" id="roundTag">Round 1</span>
+      <button type="button" class="tablechip" id="tableChip" aria-haspopup="dialog" hidden>
+        <span id="tableChipName">Table</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
       <span class="devnet" title="Solana devnet: test money only, no real funds">DEVNET</span>
     </div>
 
@@ -196,6 +200,7 @@
       </details>
 
       <!-- Phones: the top-bar chip is display-only, so the account is one tap away here. -->
+      <button type="button" class="walletrow" id="tableRow"><span class="lbl">Table</span><b id="tableRowTxt">-</b></button>
       <button type="button" class="walletrow" id="walletRow"><span class="lbl">Wallet</span><b id="walletRowTxt">Connect</b></button>
     </aside>
 
@@ -291,6 +296,10 @@
 
   <div class="overlay modal sheetov" id="walletOverlay" hidden>
     <div class="card help sheetcard" id="walletCard"></div>
+  </div>
+
+  <div class="overlay modal sheetov" id="tableOverlay" hidden>
+    <div class="card help sheetcard" id="tableCard"></div>
   </div>
 
   <div class="overlay modal sheetov" id="proofOverlay" hidden>

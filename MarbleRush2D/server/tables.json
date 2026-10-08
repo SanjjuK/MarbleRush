@@ -1,0 +1,7 @@
+{
+  "_": "A table is one independent race loop with its own pool. minPlayers counts wallets that have bet (0 = the race always runs). bots 'house' adds labelled house stakes, capped by botBudget (token units); 'none' means every unit in the pool is a player's. token omitted = the default token, or the show on data/schedule.json.",
+  "tables": [
+    { "id": "practice", "name": "Practice", "token": "RUSH", "minPlayers": 0, "maxPlayers": 20, "bots": "house", "botBudget": 600 },
+    { "id": "live", "name": "Live", "minPlayers": 3, "maxPlayers": 20, "bots": "none" }
+  ]
+}

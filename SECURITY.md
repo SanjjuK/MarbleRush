@@ -18,7 +18,7 @@ Please report vulnerabilities privately to the maintainers (open a private secur
 - Strict `Content-Security-Policy` (scripts from our own origin only), `nosniff`, no framing, no referrer, HSTS on HTTPS.
 - The server serves only the page, its CSS and scripts, and three shared modules; server code, tools, data and the README are not reachable.
 - POSTs must come from our own origin; no CORS headers are sent.
-- Rate limits: API calls per address, sign-in nonces per address, bet builds per player, open streams per address, faucet per address and per day.
+- Rate limits (all keyed on the real client address; behind a proxy set `MR_TRUST_PROXY=1`, or every visitor shares the proxy's address): API calls per address, sign-in nonces per address, bet builds per player, open streams per address, faucet per address and per day.
 - The faucet and the round memos stop before the house wallet runs out of SOL, so payouts are the last thing to run dry.
 - A server restart mid-round refunds that round's bets (they are saved as they land) and continues the round numbering. A round's commit memo carries a hash of the race code and the git revision.
 - Payouts are written to disk with their signature before being sent, and are checked against the cluster after a crash, so they are neither lost nor paid twice.
@@ -28,7 +28,7 @@ Please report vulnerabilities privately to the maintainers (open a private secur
 ## Known limits
 
 - Dependencies: `npm audit` reports advisories in transitive packages of `@solana/web3.js` 1.x (`bigint-buffer`, `jayson`, `uuid`, `stream-json`). They matter only if the RPC endpoint is malicious; there is no non-breaking fix yet. Migrating to `@solana/kit` is on the list.
-- The house vault is custodial and pays the house bots' share of winnings from its float.
+- The house vault is custodial. On the Practice table the pool also holds labelled house stakes (capped per round by `botBudget`) and winners are paid from the float, so that table can lose up to the cap in a round; it plays the test token only. A table with `bots: none` pays out at most what its players staked, minus the rake.
 - A player who signs a bet and sends the transaction to the network themselves, instead of through us, would lose the stake into the vault without a bet being recorded.
 - No alerting: a failed payout (after six retries) is only visible in the server log.
 - Single process, in-memory state with periodic saves; not built for horizontal scaling.
