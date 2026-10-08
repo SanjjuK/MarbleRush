@@ -16,16 +16,37 @@ import { TRACK_W } from './track2d.js';
 import { paintScenes, paintPops } from './scenes2d.js';
 
 /**
- * The course's own colours, in the Map 1 palette (2026-09-26): a warm
- * charcoal stage instead of navy, machined-steel rails, gunmetal pegs and
- * champagne gold, matching the page around it.
+ * The course's own colours. The neutral parts (page, column, walls, pegs) come
+ * from the design tokens in css/tokens.css so the canvas and the HUD around it
+ * are one palette; the values below are the same tokens as a fallback for
+ * anything that imports this without a page (the Node tools). Signal colours
+ * (green open, red closed, cryo blue, warp purple) are NOT tokens: they mean
+ * something on the course and stay as they are.
  */
 const C = {
-  bgTop: '#0e1016', bgBot: '#07080c',
-  wall: '#8a92a5', wallEdge: '#1b1e27', wallHi: 'rgba(236,239,245,0.28)',
-  peg: '#4b5263', ink: '#14161d',
+  bg: '#0E0C0A', ground: '#16130F',
+  bgTop: '#0E0C0A', bgBot: '#0E0C0A',
+  wall: '#4A4036', wallEdge: '#2F2822', wallHi: 'rgba(237,230,220,0.18)',
+  peg: 'rgba(166,157,145,0.55)', ink: '#16130F', gate: '#B3AA9E',
   gold: '#f0cd7c', goldDeep: '#d6b25a',
 };
+
+/** Re-read the neutral colours from the page's tokens (cheap; called when a renderer is made). */
+function readTheme() {
+  if (typeof document === 'undefined') return;
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name) => cs.getPropertyValue(name).trim();
+  const bg = v('--bg'), ground = v('--ground'), edge = v('--track-edge'), strong = v('--line-strong'), t3 = v('--text-3');
+  if (bg) C.bg = C.bgTop = C.bgBot = bg;
+  if (ground) C.ground = C.ink = ground;
+  if (edge) C.wallEdge = edge;
+  if (strong) C.wallHi = strong;
+  if (v('--text-2')) C.gate = v('--text-2');
+  if (t3 && /^#[0-9a-f]{6}$/i.test(t3)) {
+    const n = parseInt(t3.slice(1), 16);
+    C.peg = `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},0.55)`;
+  }
+}
 
 const MIN_VIEW_H = 640;     // world units always visible vertically
 const MAX_SCALE  = 1.35;
@@ -40,6 +61,7 @@ function s_quiet(trays, gt) {
 
 export class Renderer2D {
   constructor(canvas, engine, racers) {
+    readTheme();
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.engine = engine;
@@ -102,13 +124,14 @@ export class Renderer2D {
     for (const el of document.querySelectorAll('[data-hud]')) {
       const r = box(el);
       if (!r) continue;
-      if (r.width >= WIDE) {
+      // data-hud="top" forces a top band however narrow it is (the betting clock ring hangs from the top bar).
+      if (r.width >= WIDE || el.dataset.hud === 'top') {
         // Top or bottom band by its CENTRE, not its top edge. On a phone the
         // betting tote is so tall that its top edge sits above the middle of
         // the screen, so it was classed as a TOP band and the course was
         // framed to start below the bottom of the window: the whole betting
         // phase showed an empty screen.
-        if ((r.top + r.bottom) / 2 < this.ch * 0.5) top = Math.max(top, r.bottom + 8);
+        if (el.dataset.hud === 'top' || (r.top + r.bottom) / 2 < this.ch * 0.5) top = Math.max(top, r.bottom + 8);
         else bottomPad = Math.max(bottomPad, this.ch - r.top + 8);
       } else if (r.left > this.cw * 0.5) {
         right = Math.min(right, r.left - 12);
@@ -123,6 +146,13 @@ export class Renderer2D {
       w: Math.max(260, right - left),
       h: Math.max(240, this.ch - top - bottomPad),
     };
+    if (this.onResize) this.onResize();
+  }
+
+  /** Where the course column sits on screen, in CSS pixels: the HUD pins things (the progress rail) to it. */
+  courseRect() {
+    const s = this.safe, w = TRACK_W * this.scale;
+    return { x: s.x + (s.w - w) / 2, y: s.y, w, h: s.h };
   }
 
   /** World units per CSS pixel, chosen so the course fits the clear area. */
@@ -151,7 +181,10 @@ export class Renderer2D {
     const focus = this._focus(phase);
 
     const viewH = this.safe.h / this.scale;
-    const want = Math.max(0, Math.min(focus - viewH * 0.42, E.track.height - viewH));
+    // The field normally sits 42% down the clear area. When the clear area is only a strip (a phone while betting:
+    // the ring above, the sheet below) the gate is brought up under its top edge so the marbles stay in view.
+    const anchor = phase !== 'racing' && this.safe.h < 420 ? 0.12 : 0.42;
+    const want = Math.max(0, Math.min(focus - viewH * anchor, E.track.height - viewH));
     const k = phase === 'racing' ? 4.5 : 8;
     this.camY += (want - this.camY) * Math.min(1, dt * k);
 
@@ -171,7 +204,7 @@ export class Renderer2D {
     for (const g of this.gone) g.t += dt;
     for (const ev of this.warpQueue || []) {
       this.bursts.push({ x: ev.fromX, y: ev.fromY, t: 0, color: '#ffffff' });
-      this.bursts.push({ x: ev.toX, y: ev.toY, t: 0, color: ev.dir > 0 ? '#bfe8ff' : '#9aa3b5' });
+      this.bursts.push({ x: ev.toX, y: ev.toY, t: 0, color: ev.dir > 0 ? '#bfe8ff' : '#aba6a1' });
       this.trails[ev.index].length = 0;       // no streak across the screen
     }
     this.warpQueue = [];
@@ -279,10 +312,7 @@ export class Renderer2D {
     const dpr = this._dpr, sc = this.scale;
 
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const bg = g.createLinearGradient(0, 0, 0, this.ch);
-    bg.addColorStop(0, C.bgTop);
-    bg.addColorStop(1, C.bgBot);
-    g.fillStyle = bg;
+    g.fillStyle = C.bg;
     g.fillRect(0, 0, this.cw, this.ch);
 
     // Origin of the world inside the clear rectangle, not the window.
@@ -291,6 +321,21 @@ export class Renderer2D {
                    (s.x + (s.w - TRACK_W * sc) / 2) * dpr, (s.y - this.camY * sc) * dpr);
     this._world(g, this.camY, this.camY + s.h / sc);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._spotlight(g, s, sc);
+  }
+
+  /** A soft glow behind a winning marble (the result screen, view only): `glow` is an rgba() colour. */
+  setSpotlight(index, glow) {
+    const m = /rgba?\(([^)]+)\)/.exec(glow || '');
+    this.spot = m ? { index, inner: glow, outer: `rgba(${m[1].split(',').slice(0, 3).join(',')},0)` } : null;
+  }
+  _spotlight(g, s, sc) {
+    if (!this.spot) return;
+    const mb = this.engine.marbles[this.spot.index];
+    const x = s.x + (s.w - TRACK_W * sc) / 2 + mb.x * sc, y = s.y + (mb.y - this.camY) * sc, r = 36 + 70 * sc;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, this.spot.inner); grad.addColorStop(1, this.spot.outer);
+    g.fillStyle = grad; g.fillRect(x - r, y - r, 2 * r, 2 * r);
   }
 
   /**
@@ -309,7 +354,7 @@ export class Renderer2D {
       canvas.height = Math.round(h * dpr);
     }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#0c0d12';
+    g.fillStyle = C.bg;
     g.fillRect(0, 0, w, h);
     if (!subject) return;
 
@@ -330,6 +375,10 @@ export class Renderer2D {
   _world(g, top, bot) {
     const E = this.engine, t = E.track;
 
+    // --- the column the marbles run in: the design's --ground against the page's --bg ---
+    g.fillStyle = C.ground;
+    g.fillRect(t.wallL, top - 4, t.wallR - t.wallL, bot - top + 8);
+
     // --- section bands, with the name set into the background ---
     g.textAlign = 'center';
     for (const s of t.sections) {
@@ -337,7 +386,7 @@ export class Renderer2D {
       g.fillStyle = 'rgba(255,255,255,0.022)';
       g.fillRect(t.wallL, s.y0, t.wallR - t.wallL, s.y1 - s.y0);
       g.fillStyle = 'rgba(255,255,255,0.10)';
-      g.font = '800 30px system-ui, -apple-system, sans-serif';
+      g.font = '700 30px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.fillText(s.name.toUpperCase(), TRACK_W / 2, s.y0 + 52);
     }
 
@@ -351,7 +400,7 @@ export class Renderer2D {
       g.fillRect(o.x0, o.y0, o.x1 - o.x0, o.y1 - o.y0);
       g.save();
       g.beginPath(); g.rect(o.x0, o.y0, o.x1 - o.x0, o.y1 - o.y0); g.clip();
-      g.strokeStyle = 'rgba(255, 210, 63, 0.05)';
+      g.strokeStyle = 'rgba(166, 157, 145, 0.07)';
       g.lineWidth = 6;
       g.beginPath();
       for (let k = o.x0 - (o.y1 - o.y0); k < o.x1; k += 26) {
@@ -359,9 +408,9 @@ export class Renderer2D {
       }
       g.stroke();
       g.restore();
-      g.font = '800 12px system-ui, -apple-system, sans-serif';
+      g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'center';
-      g.fillStyle = 'rgba(255, 210, 63, 0.35)';
+      g.fillStyle = 'rgba(166, 157, 145, 0.45)';
       g.fillText('OFF TRACK', (o.x0 + o.x1) / 2, o.y0 + 24);
     }
 
@@ -369,7 +418,7 @@ export class Renderer2D {
     for (const p of t.pits || []) {
       if (p.y1 < top - 60 || p.y0 > bot + 60) continue;
       const gr = g.createLinearGradient(0, p.y0 - 40, 0, p.y1);
-      gr.addColorStop(0, E.armed ? 'rgba(255,60,60,0.16)' : 'rgba(120,130,160,0.08)');
+      gr.addColorStop(0, E.armed ? 'rgba(224,71,59,0.16)' : 'rgba(144, 137, 129, 0.08)');
       gr.addColorStop(1, 'rgba(0,0,0,0.55)');
       g.fillStyle = gr;
       g.fillRect(p.x0 - 2, p.y0 - 40, p.x1 - p.x0 + 4, p.y1 - p.y0 + 40);
@@ -406,7 +455,7 @@ export class Renderer2D {
     if (!E.armed) {
       for (const s of nets) {
         g.lineWidth = 3;
-        g.strokeStyle = '#3fd97e';
+        g.strokeStyle = '#36B368';
         g.setLineDash([7, 5]);
         g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
         g.setLineDash([]);
@@ -417,7 +466,7 @@ export class Renderer2D {
     // with the emitters still showing at the walls.
     for (const s of lasers) {
       const on = !E.timedGateOpen(s.gate);
-      const col = s.laser === 'red' ? '255,70,90' : '0,255,170';
+      const col = s.laser === 'red' ? '224,71,59' : '54,179,104';
       g.lineCap = 'butt';
       if (on) {
         g.strokeStyle = `rgba(${col},0.35)`; g.lineWidth = 12;
@@ -432,7 +481,7 @@ export class Renderer2D {
         g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
         g.setLineDash([]);
       }
-      g.fillStyle = on ? `rgb(${col})` : '#2b3550';
+      g.fillStyle = on ? `rgb(${col})` : '#38322C';
       g.fillRect(s.ax - 2, s.ay - 7, 8, 14);
       g.fillRect(s.bx - 6, s.by - 7, 8, 14);
     }
@@ -442,11 +491,11 @@ export class Renderer2D {
       const dx = s.bx - s.ax, dy = s.by - s.ay, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
       g.lineCap = 'round';
       g.lineWidth = 12;
-      g.strokeStyle = '#2b3550';
+      g.strokeStyle = '#38322C';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       const v = E.beltSpeed(s);
       const dir = Math.sign(v), off = ((this.clock * Math.abs(v)) % 26) * dir;
-      g.strokeStyle = v > 0 ? '#3fd97e' : '#ff5a4e';
+      g.strokeStyle = v > 0 ? '#36B368' : '#E0473B';
       g.lineWidth = 2.5;
       for (let d = -26; d < L + 26; d += 26) {
         const k = d + off;
@@ -473,7 +522,7 @@ export class Renderer2D {
         g.globalAlpha = 1 - drop * 0.85;
         g.lineCap = 'round';
         g.lineWidth = 9;
-        g.strokeStyle = isOpen ? '#3fd97e' : C.goldDeep;
+        g.strokeStyle = isOpen ? '#36B368' : C.goldDeep;
         g.beginPath(); g.moveTo(s.ax, s.ay + drop * 30); g.lineTo(s.bx, s.by + drop * 30); g.stroke();
         g.globalAlpha = 1;
         const b = blocks.get(gt) || { x0: 1e9, x1: -1e9, y: 0, gt, at, isOpen };
@@ -496,9 +545,9 @@ export class Renderer2D {
       for (const b of blocks.values()) {
         const cx = (b.x0 + b.x1) / 2;
         if (b.gt.label === 'FLASH CRASH' || b.gt.label === 'RUG PULL') {
-          g.font = '800 12px system-ui, -apple-system, sans-serif';
+          g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
-          g.fillStyle = b.isOpen ? '#ff5a78' : 'rgba(255,190,200,0.8)';
+          g.fillStyle = b.isOpen ? '#E0473B' : 'rgba(255,190,200,0.8)';
           g.fillText(b.isOpen ? (b.gt.label === 'RUG PULL' ? 'RUGGED!' : 'CRASH!') : b.gt.label, cx, b.y - 16);
           continue;
         }
@@ -506,7 +555,7 @@ export class Renderer2D {
           const key = b.gt.label || 'x';
           if (!quiet.has(key)) {
             quiet.add(key);
-            g.font = '800 13px system-ui, -apple-system, sans-serif';
+            g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif';
             const a = tags.get(key);
             g.textAlign = 'center';
             g.fillStyle = '#ffd98a';
@@ -519,14 +568,14 @@ export class Renderer2D {
           const n = b.gt.multi.filter(v => ((E.tick + v.phase) % v.period) < v.open).length;
           b.gt.multi.forEach((v, k) => {
             const on = ((E.tick + v.phase) % v.period) < v.open;
-            g.fillStyle = on ? '#3fd97e' : '#3a2230';
+            g.fillStyle = on ? '#36B368' : '#3a2230';
             g.beginPath(); g.arc(cx - 40 + k * 40, b.y - 62, 11, 0, Math.PI * 2); g.fill();
-            g.lineWidth = 2; g.strokeStyle = on ? '#b7ffd2' : '#ff5a4e';
+            g.lineWidth = 2; g.strokeStyle = on ? '#b7ffd2' : '#E0473B';
             g.beginPath(); g.arc(cx - 40 + k * 40, b.y - 62, 11, 0, Math.PI * 2); g.stroke();
           });
-          g.font = '800 14px system-ui, -apple-system, sans-serif';
+          g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
-          g.fillStyle = b.isOpen ? '#3fd97e' : '#ffd98a';
+          g.fillStyle = b.isOpen ? '#36B368' : '#ffd98a';
           g.fillText(b.isOpen ? `CONSENSUS ${n}/3 · RELEASED` : `VALIDATORS ${n}/3 · NEED 2`, cx, b.y - 86);
           continue;
         }
@@ -537,11 +586,11 @@ export class Renderer2D {
         g.lineWidth = 6;
         g.strokeStyle = 'rgba(255,255,255,0.10)';
         g.beginPath(); g.moveTo(cx - 150, b.y - 58); g.lineTo(cx + 150, b.y - 58); g.stroke();
-        g.strokeStyle = b.isOpen ? '#3fd97e' : C.goldDeep;
+        g.strokeStyle = b.isOpen ? '#36B368' : C.goldDeep;
         g.beginPath(); g.moveTo(cx - 150, b.y - 58); g.lineTo(cx - 150 + 300 * frac, b.y - 58); g.stroke();
-        g.font = '800 15px system-ui, -apple-system, sans-serif';
+        g.font = '700 15px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
-        g.fillStyle = b.isOpen ? '#3fd97e' : '#ffd98a';
+        g.fillStyle = b.isOpen ? '#36B368' : '#ffd98a';
         if (b.gt.label) {
           g.fillText(b.isOpen ? `${b.gt.label} · OPEN` : `${b.gt.label} ${secs.toFixed(1)}s`, cx, b.y - 72);
         } else {
@@ -551,7 +600,7 @@ export class Renderer2D {
           for (const m of E.marbles) if (!m.out && m.x > b.x0 - 60 && m.x < b.x1 + 60 && m.y > b.y - 90 && m.y < b.y + 30) pending++;
           const gwei = 6 + pending * pending * 7;
           g.fillText(b.isOpen ? 'BLOCK MINED · RELEASE' : `NEXT BLOCK ${secs.toFixed(1)}s`, cx, b.y - 72);
-          g.font = '600 12px "JetBrains Mono", ui-monospace, Menlo, monospace';
+          g.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.fillStyle = 'rgba(255,217,138,0.75)';
           g.fillText(`pending tx ${pending} · gas ${gwei} gwei`, cx, b.y - 38);
         }
@@ -583,11 +632,11 @@ export class Renderer2D {
       g.lineWidth = 5;
       g.strokeStyle = 'rgba(255,255,255,0.12)';
       g.beginPath(); g.moveTo(s.ax + side, s.ay); g.lineTo(s.ax + side, s.by); g.stroke();
-      g.strokeStyle = isOpen ? '#3fd97e' : '#ff5a4e';
+      g.strokeStyle = isOpen ? '#36B368' : '#E0473B';
       g.beginPath(); g.moveTo(s.ax + side, s.by); g.lineTo(s.ax + side, s.by - len * left); g.stroke();
-      g.font = '800 11px system-ui, -apple-system, sans-serif';
+      g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'center';
-      g.fillStyle = isOpen ? '#3fd97e' : '#ff5a4e';
+      g.fillStyle = isOpen ? '#36B368' : '#E0473B';
       g.fillText(isOpen ? 'OPEN' : 'SHUT', s.ax + side * 2.2, s.ay - 10);
       g.lineCap = 'round';
     }
@@ -601,7 +650,7 @@ export class Renderer2D {
       const d = s.door;
       g.lineCap = 'butt';
       g.lineWidth = 4;
-      g.strokeStyle = 'rgba(255, 90, 78, 0.8)';
+      g.strokeStyle = 'rgba(224,71,59, 0.8)';
       g.beginPath();
       g.moveTo(s.ax - 12, d.y0); g.lineTo(s.ax + 12, d.y0);
       g.moveTo(s.ax - 12, d.y1); g.lineTo(s.ax + 12, d.y1);
@@ -620,7 +669,7 @@ export class Renderer2D {
     // Dash pads: a lit strip with chevrons pointing the way it throws.
     for (const s of pads) {
       g.lineWidth = 10;
-      g.strokeStyle = '#1fb8ff';
+      g.strokeStyle = '#3B87E6';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       const dir = Math.sign(s.boost.vx) || 1;
       const x0 = Math.min(s.ax, s.bx), x1 = Math.max(s.ax, s.bx);
@@ -674,8 +723,8 @@ export class Renderer2D {
 
     // --- start gate ---
     if (!E.gateOpen) {
-      g.strokeStyle = '#ff5a4e';
-      g.lineWidth = 9;
+      g.strokeStyle = C.gate;            // the design's quiet bar, not a red line
+      g.lineWidth = 8;
       g.beginPath();
       g.moveTo(t.gate.ax, t.gate.ay);
       g.lineTo(t.gate.bx, t.gate.by);
@@ -698,7 +747,7 @@ export class Renderer2D {
       const ox = -p.nx * (16 - depth), oy = -p.ny * (16 - depth);
       // Coil: a zigzag between the plate and its base, below the surface.
       g.lineWidth = 3;
-      g.strokeStyle = '#9fb3d9';
+      g.strokeStyle = '#c3b9af';
       g.beginPath();
       const n = 7;
       for (let j = 0; j <= n; j++) {
@@ -712,7 +761,7 @@ export class Renderer2D {
       // The plate itself, lit while recharging.
       g.lineCap = 'round';
       g.lineWidth = 9;
-      g.strokeStyle = st.tick >= 0 ? C.gold : '#3fd97e';
+      g.strokeStyle = st.tick >= 0 ? C.gold : '#36B368';
       g.beginPath();
       g.moveTo(p.ax + ox, p.ay + oy); g.lineTo(p.bx + ox, p.by + oy);
       g.stroke();
@@ -727,10 +776,10 @@ export class Renderer2D {
       const hot = s.tick >= 0 && s.tick < 46;
       g.lineCap = 'round';
       g.lineWidth = f.fr * 2 + 4;
-      g.strokeStyle = hot ? C.gold : '#d8dce6';
+      g.strokeStyle = hot ? C.gold : '#e1dedb';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       g.lineWidth = f.fr * 2 - 3;
-      g.strokeStyle = hot ? '#ff9f1c' : '#ff5a4e';
+      g.strokeStyle = hot ? '#ff9f1c' : '#E0473B';
       g.beginPath(); g.moveTo(s.ax, s.ay); g.lineTo(s.bx, s.by); g.stroke();
       g.fillStyle = C.ink;
       g.beginPath(); g.arc(s.ax, s.ay, 6, 0, Math.PI * 2); g.fill();
@@ -780,7 +829,7 @@ export class Renderer2D {
       if (b.node) {
         // A validator: a hexagon ring, green when it confirms a hit.
         g.lineWidth = 2;
-        g.strokeStyle = b.flash > 0 ? '#3fd97e' : 'rgba(143,166,207,0.7)';
+        g.strokeStyle = b.flash > 0 ? '#36B368' : 'rgba(179,170,158,0.7)';
         g.beginPath();
         for (let k = 0; k < 6; k++) {
           const a = k * Math.PI / 3 + Math.PI / 6;
@@ -789,9 +838,9 @@ export class Renderer2D {
         }
         g.closePath(); g.stroke();
         if (b.flash > 0.6) {
-          g.font = '700 10px "JetBrains Mono", ui-monospace, Menlo, monospace';
+          g.font = '700 10px "Barlow Condensed", "Arial Narrow", sans-serif';
           g.textAlign = 'center';
-          g.fillStyle = `rgba(63,217,126,${(b.flash - 0.6) * 2.5})`;
+          g.fillStyle = `rgba(54,179,104,${(b.flash - 0.6) * 2.5})`;
           g.fillText('+1 block', b.x, b.y - b.r - 10 - (1 - b.flash) * 30);
         }
       }
@@ -802,7 +851,7 @@ export class Renderer2D {
       const sq = 20;
       for (let i = 0; i * sq < t.wallR - t.wallL; i++) {
         for (let j = 0; j < 2; j++) {
-          g.fillStyle = (i + j) % 2 === 0 ? '#e8ecf4' : C.ink;
+          g.fillStyle = (i + j) % 2 === 0 ? '#efedeb' : C.ink;
           g.fillRect(t.wallL + i * sq, t.finishY + j * sq, sq, sq);
         }
       }
@@ -826,7 +875,7 @@ export class Renderer2D {
       // Frozen: an ice shell, and the thaw counting down round it.
       if (m.frozen && E.tick < m.frozen && m.frozenBy === 'grab') {
         // In a claw's grip: the claw's hold counting down.
-        g.strokeStyle = '#e2e8f0'; g.lineWidth = 3;
+        g.strokeStyle = '#ebe9e6'; g.lineWidth = 3;
         g.beginPath(); g.arc(m.x, m.y, m.r + 6, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
       } else if (m.frozen && E.tick < m.frozen) {
         const left = (m.frozen - E.tick) / (m.frozenFor || 480);   // a worn freeze is not always 2s
@@ -853,11 +902,11 @@ export class Renderer2D {
         g.rotate(-0.22);
         g.scale(sc, sc);
         g.globalAlpha = a * fade;
-        g.strokeStyle = '#ff3b3b'; g.lineWidth = 3;
+        g.strokeStyle = '#E0473B'; g.lineWidth = 3;
         g.strokeRect(-44, -17, 88, 34);
-        g.font = '900 24px system-ui, -apple-system, sans-serif';
+        g.font = '700 24px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillStyle = '#ff3b3b';
+        g.fillStyle = '#E0473B';
         g.fillText('REKT', 0, 1);
         g.textBaseline = 'alphabetic';
         g.restore();
@@ -912,7 +961,7 @@ export class Renderer2D {
           }
         }
         // The fan housing: a grille on the upwind edge.
-        g.fillStyle = on ? '#7cc8ff' : '#3a4a66';
+        g.fillStyle = on ? '#7cc8ff' : '#4A423A';
         if (z.fy < 0) g.fillRect(z.x0 + 10, z.y1 - 6, w - 20, 6);
         else if (z.fx * E.fanDir(z) > 0) g.fillRect(z.x0 - 4, z.y0 + 6, 6, h - 12);
         else g.fillRect(z.x1 - 2, z.y0 + 6, 6, h - 12);
@@ -933,23 +982,23 @@ export class Renderer2D {
         // A claw on a cable: open and lit while it can grab.
         const cx = (z.x0 + z.x1) / 2, top = z.y0 - 46;
         const col = z.diamond ? '#7ee8ff' : '#e8d9b0';
-        g.strokeStyle = 'rgba(200,210,230,0.5)'; g.lineWidth = 2;
+        g.strokeStyle = 'rgba(219, 213, 208, 0.5)'; g.lineWidth = 2;
         g.beginPath(); g.moveTo(cx, top - 30); g.lineTo(cx, z.y0 - 4); g.stroke();
         const spread = on ? 16 : 7;
-        g.strokeStyle = on ? col : 'rgba(160,170,190,0.5)'; g.lineWidth = 4; g.lineCap = 'round';
+        g.strokeStyle = on ? col : 'rgba(179, 173, 168, 0.5)'; g.lineWidth = 4; g.lineCap = 'round';
         for (const d of [-1, 1]) {
           g.beginPath(); g.moveTo(cx, z.y0 - 4); g.lineTo(cx + d * spread, z.y0 + 10);
           g.lineTo(cx + d * (spread - 8), z.y0 + 22); g.stroke();
         }
-        g.font = '16px system-ui, -apple-system, sans-serif';
+        g.font = '16px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
         g.fillText(z.diamond ? '💎' : '🧻', cx, top - 34);
       } else if (z.kind === 'reorg') {
-        g.fillStyle = on ? 'rgba(168,85,247,0.28)' : 'rgba(168,85,247,0.06)';
-        g.strokeStyle = on ? '#c084fc' : 'rgba(192,132,252,0.35)';
+        g.fillStyle = on ? 'rgba(145,97,227,0.28)' : 'rgba(145,97,227,0.06)';
+        g.strokeStyle = on ? '#9161E3' : 'rgba(145,97,227,0.35)';
         g.lineWidth = 2;
         g.beginPath(); g.roundRect(z.x0, z.y0, w, h, 8); g.fill(); g.stroke();
-        g.font = '800 11px system-ui, -apple-system, sans-serif';
+        g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center';
         g.fillStyle = on ? '#f3e8ff' : 'rgba(233,213,255,0.5)';
         g.fillText('↺ REORG', (z.x0 + z.x1) / 2, z.y0 - 6);
@@ -970,22 +1019,22 @@ export class Renderer2D {
           g.setLineDash([]); g.lineDashOffset = 0;
           if (p > 0) {
             const glow = g.createRadialGradient(z.cx, z.cy, 20, z.cx, z.cy, z.rad);
-            glow.addColorStop(0, `rgba(96,165,250,${0.28 * p})`);
-            glow.addColorStop(1, 'rgba(96,165,250,0)');
+            glow.addColorStop(0, `rgba(59,135,230,${0.28 * p})`);
+            glow.addColorStop(1, 'rgba(59,135,230,0)');
             g.fillStyle = glow; g.beginPath(); g.arc(z.cx, z.cy, z.rad, 0, Math.PI * 2); g.fill();
           }
         }
         const spin = 1 + 3 * p;
         for (let k = 1; k <= 5; k++) {
           const r = z.rad * (k / 5) ** 1.4;
-          g.strokeStyle = `rgba(96,165,250,${0.05 + 0.05 * (6 - k) / 5 + 0.25 * p})`; g.lineWidth = 2;
+          g.strokeStyle = `rgba(59,135,230,${0.05 + 0.05 * (6 - k) / 5 + 0.25 * p})`; g.lineWidth = 2;
           g.beginPath(); g.arc(z.cx, z.cy, r, this.clock * spin * (1.2 - k * 0.15), this.clock * spin * (1.2 - k * 0.15) + 5); g.stroke();
         }
-        g.font = '22px system-ui, -apple-system, sans-serif'; g.textAlign = 'center';
+        g.font = '22px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
         g.fillText('🐋', z.cx, z.cy + 8);
       } else if (z.kind === 'brake') {
         g.setLineDash([8, 6]);
-        g.strokeStyle = 'rgba(255,90,78,0.7)';
+        g.strokeStyle = 'rgba(224,71,59,0.7)';
         g.lineWidth = 2;
         g.strokeRect(z.x0, z.y0, w, h);
         g.setLineDash([]);
@@ -993,10 +1042,10 @@ export class Renderer2D {
         const cx = (z.x0 + z.x1) / 2, cy = z.y0 - 26;
         g.fillStyle = '#ffffff';
         g.beginPath(); g.arc(cx, cy, 20, 0, Math.PI * 2); g.fill();
-        g.lineWidth = 5; g.strokeStyle = '#e5322b';
+        g.lineWidth = 5; g.strokeStyle = '#E0473B';
         g.beginPath(); g.arc(cx, cy, 17, 0, Math.PI * 2); g.stroke();
         g.fillStyle = '#111';
-        g.font = '800 12px system-ui, -apple-system, sans-serif';
+        g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif';
         g.textAlign = 'center'; g.textBaseline = 'middle';
         g.fillText(String(Math.round(z.vmax / 10)), cx, cy + 1);
         g.textBaseline = 'alphabetic';
@@ -1010,7 +1059,7 @@ export class Renderer2D {
       for (let a = 0; a < o.arms; a++) {
         const ang = o.angle + a * (Math.PI * 2 / o.arms);
         g.lineWidth = o.fr * 2;
-        g.strokeStyle = '#9aa2b4';
+        g.strokeStyle = '#aaa5a1';
         g.beginPath(); g.moveTo(o.cx, o.cy);
         g.lineTo(o.cx + Math.cos(ang) * o.len, o.cy + Math.sin(ang) * o.len); g.stroke();
         g.lineWidth = 3;
@@ -1025,16 +1074,16 @@ export class Renderer2D {
     for (const o of t.movers || []) {
       if (!vis(Math.min(o.ay, o.by), Math.max(o.ay, o.by))) continue;
       g.lineWidth = 2;
-      g.strokeStyle = 'rgba(143,166,207,0.25)';
+      g.strokeStyle = 'rgba(179,170,158,0.25)';
       g.beginPath(); g.moveTo(o.ax, o.ay); g.lineTo(o.bx, o.by); g.stroke();
       const grd = g.createRadialGradient(o.x - 5, o.y - 5, 2, o.x, o.y, o.r);
       if (o.kind === 'bot' || o.kind === 'runner') {
         // MEV bots: gunmetal with a red eye looking the way they move.
-        grd.addColorStop(0, '#6b7280'); grd.addColorStop(1, '#1f2937');
+        grd.addColorStop(0, '#787471'); grd.addColorStop(1, '#1f2937');
         g.fillStyle = grd;
         g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
         const dir = Math.sign(o.vx) || 1;
-        g.fillStyle = '#ff3b3b';
+        g.fillStyle = '#E0473B';
         g.beginPath(); g.arc(o.x + dir * o.r * 0.35, o.y - o.r * 0.15, o.r * 0.22, 0, Math.PI * 2); g.fill();
         if (o.kind === 'runner') {
           g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;
@@ -1057,7 +1106,7 @@ export class Renderer2D {
       const L = Math.hypot(c.vx, c.vy), ux = c.vx / L, uy = c.vy / L;
       g.lineCap = 'round';
       g.lineWidth = 30;
-      g.strokeStyle = '#2d3a58';
+      g.strokeStyle = '#3A332D';
       g.beginPath(); g.moveTo(c.mx - ux * 40, c.my - uy * 40); g.lineTo(c.mx + ux * 10, c.my + uy * 10); g.stroke();
       g.lineWidth = 3;
       g.strokeStyle = C.goldDeep;
@@ -1074,7 +1123,7 @@ export class Renderer2D {
     // Painted signs (the Bull Trap's lying SHORTCUT).
     for (const sg of t.signs || []) {
       if (!vis(sg.y - 30, sg.y + 30)) continue;
-      g.font = '800 13px system-ui, -apple-system, sans-serif';
+      g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif';
       const w = g.measureText(sg.text).width + 20;
       g.fillStyle = sg.style === 'bull' ? '#15803d' : '#334155';
       g.beginPath(); g.roundRect(sg.x - w / 2, sg.y - 14, w, 26, 6); g.fill();
@@ -1108,13 +1157,13 @@ export class Renderer2D {
         g.fillStyle = this.racers[m.index].hex;
         g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill();
       }
-      g.font = '700 11px system-ui, -apple-system, sans-serif'; g.textAlign = 'center';
-      g.fillStyle = 'rgba(199,210,254,0.8)';
+      g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
+      g.fillStyle = 'rgba(231, 221, 211, 0.8)';
       g.fillText(loaded.length ? 'CONFIRMING…' : 'BRIDGE', c.x, c.y - 40);
     } else if (c.kind === 'vault') {
       g.fillStyle = '#1e293b'; g.strokeStyle = C.goldDeep; g.lineWidth = 3;
       g.beginPath(); g.roundRect(c.x - 30, c.y - 40, 60, 30, 6); g.fill(); g.stroke();
-      g.font = '700 11px system-ui, -apple-system, sans-serif'; g.textAlign = 'center';
+      g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
       g.fillStyle = '#ffd98a';
       g.fillText(loaded.length ? '🔒 STAKED' : 'VAULT', c.x, c.y - 20);
       for (const m of loaded) {
@@ -1125,15 +1174,15 @@ export class Renderer2D {
       // A launchpad: gantry and a countdown.
       g.fillStyle = '#334155';
       g.fillRect(c.mx - 34, c.my + 40, 68, 8);
-      g.strokeStyle = '#64748b'; g.lineWidth = 3;
+      g.strokeStyle = '#7d766f'; g.lineWidth = 3;
       g.beginPath(); g.moveTo(c.mx - 28, c.my + 40); g.lineTo(c.mx - 28, c.my - 40); g.stroke();
-      g.font = '800 12px "JetBrains Mono", ui-monospace, Menlo, monospace'; g.textAlign = 'center';
+      g.font = '700 12px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center';
       if (loaded.length) {
         const m = loaded[0], secs = Math.max(0, (m.held.fire - E.tick) / 240);
         g.fillStyle = '#ff7a45';
         g.fillText(`T-${secs.toFixed(1)}`, c.mx, c.my - 50);
       } else {
-        g.fillStyle = 'rgba(226,232,240,0.7)';
+        g.fillStyle = 'rgba(235, 233, 230, 0.7)';
         g.fillText('🚀 TO THE MOON', c.mx + 20, c.my - 50);
       }
     }
@@ -1149,7 +1198,7 @@ export class Renderer2D {
         Math.min(s.ay, s.by) <= Math.max(...c.pts.map(p => p[1])) + 1));
     }
     const hash = (x) => { const v = Math.sin(x * 12.9898) * 43758.5453; return v - Math.floor(v); };
-    const mono = '600 12px "JetBrains Mono", ui-monospace, Menlo, monospace';
+    const mono = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
 
     t.charts.forEach((c, ci) => {
       const ys = c.pts.map(p => p[1]);
@@ -1170,7 +1219,7 @@ export class Renderer2D {
       for (let y = yTop + 20; y < yBot - 10; y += 40) {
         g.strokeStyle = 'rgba(255,255,255,0.05)';
         g.beginPath(); g.moveTo(xL, y); g.lineTo(xR - 64, y); g.stroke();
-        g.fillStyle = 'rgba(200,210,230,0.35)';
+        g.fillStyle = 'rgba(219, 213, 208, 0.35)';
         g.fillText(price(y).toFixed(4), xR - 8, y + 4);
       }
       for (let x = xL + 60; x < xR - 64; x += 60) {
@@ -1190,7 +1239,7 @@ export class Renderer2D {
           const o = ay + (by - ay) * f0 + (h - 0.5) * 10, cl = ay + (by - ay) * f1 + (hash(x + 3) - 0.5) * 10;
           const up = cl < o;
           const hi = Math.min(o, cl) - 4 - h * 14, lo = Math.max(o, cl) + 4 + hash(x + 7) * 14;
-          const col = up ? '63,217,126' : '255,90,78';
+          const col = up ? '54,179,104' : '224,71,59';
           g.strokeStyle = `rgba(${col},0.6)`;
           g.lineWidth = 1.5;
           g.beginPath(); g.moveTo(x, hi - 34); g.lineTo(x, lo - 34); g.stroke();
@@ -1206,7 +1255,7 @@ export class Renderer2D {
       // Area under the line.
       const grd = g.createLinearGradient(0, yTop, 0, yBot);
       const endUp = c.pts[c.pts.length - 1][1] < y0;
-      grd.addColorStop(0, endUp ? 'rgba(63,217,126,0.18)' : 'rgba(255,90,78,0.18)');
+      grd.addColorStop(0, endUp ? 'rgba(54,179,104,0.18)' : 'rgba(224,71,59,0.18)');
       grd.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = grd;
       g.beginPath(); g.moveTo(c.pts[0][0], c.pts[0][1]);
@@ -1224,7 +1273,7 @@ export class Renderer2D {
         }
         g.globalAlpha = alpha;
         g.lineWidth = s.chart === 'pump' ? 12 : 8;
-        g.strokeStyle = s.chart === 'down' ? (s.gate ? '#ff2d55' : '#ff5a4e') : '#3fd97e';
+        g.strokeStyle = s.chart === 'down' ? (s.gate ? '#E0473B' : '#E0473B') : '#36B368';
         g.beginPath(); g.moveTo(s.ax, s.ay + off); g.lineTo(s.bx, s.by + off); g.stroke();
         g.globalAlpha = 1;
         if (s.gate) {
@@ -1265,7 +1314,7 @@ export class Renderer2D {
       const ly = lead ? lineY(lead.x) : c.pts[c.pts.length - 1][1];
       const p = price(ly), chg = (p - 1) * 100, upNow = chg >= 0;
       g.setLineDash([4, 4]); g.lineWidth = 1;
-      g.strokeStyle = upNow ? 'rgba(63,217,126,0.7)' : 'rgba(255,90,78,0.7)';
+      g.strokeStyle = upNow ? 'rgba(54,179,104,0.7)' : 'rgba(224,71,59,0.7)';
       g.beginPath(); g.moveTo(xL, ly); g.lineTo(xR - 64, ly); g.stroke(); g.setLineDash([]);
       g.fillStyle = upNow ? '#1f9d57' : '#c9302c';
       g.beginPath(); g.roundRect(xR - 66, ly - 10, 62, 20, 4); g.fill();
@@ -1275,13 +1324,13 @@ export class Renderer2D {
       // Ticker. The pair is invented on purpose: real tickers are other
       // people's trademarks.
       g.textAlign = 'left';
-      g.font = '700 14px "JetBrains Mono", ui-monospace, Menlo, monospace';
-      g.fillStyle = 'rgba(233,238,251,0.9)';
+      g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
+      g.fillStyle = 'rgba(244, 241, 237, 0.9)';
       g.fillText(c.pair, xL + 12, yTop + 22);
-      g.fillStyle = upNow ? '#3fd97e' : '#ff5a4e';
+      g.fillStyle = upNow ? '#36B368' : '#E0473B';
       g.fillText(`${upNow ? '▲ +' : '▼ '}${chg.toFixed(2)}%`, xL + 112, yTop + 22);
-      g.font = '600 11px "JetBrains Mono", ui-monospace, Menlo, monospace';
-      g.fillStyle = 'rgba(200,210,230,0.5)';
+      g.font = '600 11px "Barlow Condensed", "Arial Narrow", sans-serif';
+      g.fillStyle = 'rgba(219, 213, 208, 0.5)';
       g.fillText(c.mode === 'moon' ? '1m · PUMPING' : c.mode === 'crash' ? '1m · VOLATILE' : '1m · DUMPING', xL + 12, yTop + 40);
 
       // A parody news crawl along the foot of the chart. Every name in it is
@@ -1292,19 +1341,19 @@ export class Renderer2D {
         'MRBL hash rate hits all-time high  ·  Local marble "not selling", says marble  ·';
       g.save();
       g.beginPath(); g.rect(xL, yBot - 22, xR - xL, 22); g.clip();
-      g.fillStyle = 'rgba(255,90,78,0.85)';
+      g.fillStyle = 'rgba(224,71,59,0.85)';
       g.fillRect(xL, yBot - 22, 78, 22);
       g.fillStyle = 'rgba(12,16,28,0.9)';
       g.fillRect(xL + 78, yBot - 22, xR - xL - 78, 22);
-      g.font = '600 12px "JetBrains Mono", ui-monospace, Menlo, monospace';
+      g.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.textAlign = 'left';
       const tw = g.measureText(news).width, off = (this.clock * 70) % tw;
-      g.fillStyle = 'rgba(233,238,251,0.85)';
+      g.fillStyle = 'rgba(244, 241, 237, 0.85)';
       g.save(); g.beginPath(); g.rect(xL + 78, yBot - 22, xR - xL - 78, 22); g.clip();
       g.fillText(news, xL + 84 - off, yBot - 7);
       g.fillText(news, xL + 84 - off + tw, yBot - 7);
       g.restore();
-      g.fillStyle = '#fff'; g.font = '800 11px system-ui, -apple-system, sans-serif';
+      g.fillStyle = '#fff'; g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif';
       g.fillText('MRBL NEWS', xL + 8, yBot - 7);
       g.restore();
     });
@@ -1336,7 +1385,7 @@ export class Renderer2D {
       g.save();
       g.setLineDash([6, 10]);
       g.lineWidth = 2;
-      g.strokeStyle = fwd ? 'rgba(190,232,255,0.28)' : 'rgba(150,158,180,0.25)';
+      g.strokeStyle = fwd ? 'rgba(190,232,255,0.28)' : 'rgba(168, 163, 157, 0.25)';
       g.beginPath(); g.moveTo(h.x0 - h.sway, h.y); g.lineTo(h.x0 + h.sway, h.y); g.stroke();
       g.restore();
     }
@@ -1352,7 +1401,7 @@ export class Renderer2D {
     g.lineWidth = 3;
     for (let i = 0; i < 8; i++) {
       const a = spin + (i * Math.PI) / 4;
-      g.strokeStyle = fwd ? 'rgba(220,245,255,0.75)' : 'rgba(150,158,180,0.6)';
+      g.strokeStyle = fwd ? 'rgba(220,245,255,0.75)' : 'rgba(168, 163, 157, 0.6)';
       g.beginPath();
       g.moveTo(h.x + Math.cos(a) * (R + 4), h.y + Math.sin(a) * (R + 4));
       g.lineTo(h.x + Math.cos(a + 0.35) * (R + 22), h.y + Math.sin(a + 0.35) * (R + 22));
@@ -1361,8 +1410,8 @@ export class Renderer2D {
 
     const core = g.createRadialGradient(h.x, h.y, 0, h.x, h.y, R);
     core.addColorStop(0, '#ffffff');
-    core.addColorStop(0.6, fwd ? '#bfe8ff' : '#5a6275');
-    core.addColorStop(1, fwd ? 'rgba(120,200,255,0.2)' : 'rgba(40,44,58,0.4)');
+    core.addColorStop(0.6, fwd ? '#bfe8ff' : '#6b6661');
+    core.addColorStop(1, fwd ? 'rgba(120,200,255,0.2)' : 'rgba(51, 47, 44, 0.4)');
     g.fillStyle = core;
     g.beginPath(); g.arc(h.x, h.y, R, 0, Math.PI * 2); g.fill();
 
@@ -1370,7 +1419,7 @@ export class Renderer2D {
       // Ring: how much of this phase is left.
       const into = ((E.tick + h.phase) % h.half) / h.half;
       g.lineWidth = 4;
-      g.strokeStyle = fwd ? '#bfe8ff' : '#9aa3b5';
+      g.strokeStyle = fwd ? '#bfe8ff' : '#aba6a1';
       g.beginPath();
       g.arc(h.x, h.y, R + 30, -Math.PI / 2, -Math.PI / 2 + (1 - into) * Math.PI * 2);
       g.stroke();
@@ -1378,9 +1427,9 @@ export class Renderer2D {
 
     // Direction and size, in words a bettor can read: seconds, not sections.
     const n = Math.abs(fwd ? h.ahead.secs : h.behind.secs);
-    g.font = '800 14px system-ui, -apple-system, sans-serif';
+    g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
     g.textAlign = 'center';
-    g.fillStyle = fwd ? '#dff4ff' : '#c0c6d4';
+    g.fillStyle = fwd ? '#dff4ff' : '#ccc9c5';
     g.fillText(`${fwd ? '▼ +' : '▲ −'}${n}s`, h.x, h.y + R + 52);
     g.lineWidth = 10;
   }
@@ -1397,10 +1446,10 @@ export class Renderer2D {
     if (!armed) {
       g.beginPath();
       g.arc(h.x, h.y, h.core, 0, Math.PI * 2);
-      g.fillStyle = '#3a4560';
+      g.fillStyle = '#443D36';
       g.fill();
       g.lineWidth = 3;
-      g.strokeStyle = '#5b6a8a';
+      g.strokeStyle = '#787067';
       g.stroke();
       g.lineWidth = 10;
       return;

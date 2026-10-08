@@ -224,8 +224,9 @@ export class RemoteBetting {
   }
 
   canAfford(v) { return !this.guest && v >= this.minBet - 1e-9 && v <= this.balance + 1e-9; }
-  select(i) { this.selected = i; }
+  select(i) { if (this.placed || this.betState !== 'idle') return; this.selected = i; }
   setStake(v) {
+    if (this.placed || this.betState !== 'idle') return this.stake;
     this.stake = Math.max(this.minBet, Math.min(this.maxStake, Math.round(v * 100) / 100));
     this.stakePref = this.stake;
     try { localStorage.setItem('marblerush.stake', String(this.stake)); } catch { /* */ }
@@ -241,7 +242,7 @@ export class RemoteBetting {
     const marble = this.selected, amount = this.stake;
     this._post('bet', { marble, amount }).then(({ ok, body }) => {
       if (ok) { this.balance = body.balance; }
-      else { this.placed = false; this.balance += amount; this.on.error?.(body.error || 'bet refused'); }
+      else { this.placed = false; this.balance += amount; this._betFailed(body.error || 'bet refused'); }
       this.on.changed?.();
     });
     return true;
@@ -253,13 +254,16 @@ export class RemoteBetting {
    * waits for Solana. The bet exists once it has landed; until then nothing is on the board.
    */
   async _placeSigned(marble, amount) {
-    const fail = (msg) => { this.betState = 'idle'; this.on.error?.(msg); this.on.changed?.(); this.refreshBalance(); };
+    const fail = (msg) => { this.betState = 'idle'; this._cancel = null; this._betFailed(msg); this.on.changed?.(); this.refreshBalance(); };
     try {
       this.betState = 'preparing'; this.on.changed?.();
       const prep = await this._post('bet/prepare', { marble, amount });
       if (!prep.ok) return fail(prep.body.error || 'bet refused');
       this.betState = 'signing'; this.on.changed?.();
-      const tx = await signBet(this.address, prep.body.tx);
+      // Cancel in the page abandons the wait; nothing was sent, so a late approval in the wallet is harmless.
+      const cancelled = new Promise((_, no) => { this._cancel = () => no(new Error('Bet cancelled')); });
+      const tx = await Promise.race([signBet(this.address, prep.body.tx), cancelled]);
+      this._cancel = null;
       this.betState = 'confirming'; this.on.changed?.();
       const sent = await this._post('bet/submit', { prepId: prep.body.prepId, tx });
       if (!sent.ok) return fail(sent.body.error || 'the bet did not go through');
@@ -268,6 +272,11 @@ export class RemoteBetting {
       this.on.changed?.(); this.refreshBalance();
     } catch (e) { fail(e.message || 'the bet did not go through'); }
   }
+
+  /** A bet that did not go through (declined, cancelled, refused): the page shows it in the dock. */
+  _betFailed(msg) { (this.on.betFailed || this.on.error)?.(msg); }
+  /** Give up waiting for the wallet (only while it is open for signing). */
+  cancelBet() { if (this.betState !== 'signing' || !this._cancel) return false; this._cancel(); return true; }
 
   sendReady() { return this._post('ready'); }
   topUp() { this._post('topup').then(({ ok, body }) => { if (ok) this.balance = body.balance; this.on.changed?.(); }); return this.balance; }

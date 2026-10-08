@@ -522,7 +522,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 // project folder (backups, logs, the wallets file) is reachable.
 // The page itself, its styles and scripts, and the three shared modules it imports. The server code, the
 // QA tools, the README and the data folder are NOT served.
-const SERVED = [/^MarbleRush2D\/index\.html$/, /^MarbleRush2D\/css\/[\w.-]+$/, /^MarbleRush2D\/js\/(vendor\/)?[\w.-]+\.js$/, /^js\/(rng|racers|betting)\.js$/];
+const SERVED = [/^MarbleRush2D\/index\.html$/, /^MarbleRush2D\/css\/[\w.-]+$/, /^MarbleRush2D\/assets\/[\w-]+\.(png|svg)$/, /^MarbleRush2D\/js\/(vendor\/)?[\w.-]+\.js$/, /^js\/(rng|racers|betting)\.js$/];
 
 function json(res, code, body) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -628,6 +628,7 @@ async function api(req, res, url) {
     if (!chain || !r.token) return json(res, 409, { error: 'this round has no token' });
     if (r.phase !== 'betting' || r.closesAt - now() < 4000) return json(res, 409, { error: 'betting is closed' });
     if (r.chain.commit.status === 'pending') return json(res, 409, { error: 'sealing the round on Solana, one moment' });
+    if (r.chain.commit.status !== 'confirmed') return json(res, 409, { error: 'this round could not be sealed on Solana, so it is watch-only' });
     if (!prepareLimit.allow(pid)) return json(res, 429, { error: 'one moment' });
     if (!(await chain.solAtLeast(0.003))) return json(res, 503, { error: 'bets are paused: the house wallet is low on SOL for fees' });
     const tok = chain.token(r.token);
@@ -701,7 +702,8 @@ async function api(req, res, url) {
 async function statics(req, res, url) {
   let rel;
   try { rel = decodeURIComponent(url.pathname).replace(/^\/+/, ''); } catch { res.writeHead(400); return res.end('bad request'); }
-  if (rel === '' ) { res.writeHead(302, { location: '/MarbleRush2D/' }); return res.end(); }
+  // Keep the query string (?palette=, ?only=) across the redirect.
+  if (rel === '' ) { res.writeHead(302, { location: '/MarbleRush2D/' + url.search }); return res.end(); }
   if (rel.endsWith('/')) rel += 'index.html';
   const file = path.resolve(ROOT, rel);
   if (!file.startsWith(ROOT + path.sep) || !SERVED.some(re => re.test(rel))) {

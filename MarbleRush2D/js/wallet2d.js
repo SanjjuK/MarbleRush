@@ -20,6 +20,7 @@ export function walletProviders() {
 export const WALLET_LINKS = [
   { name: 'Phantom', url: 'https://phantom.com/download' },
   { name: 'Solflare', url: 'https://solflare.com/download' },
+  { name: 'Backpack', url: 'https://backpack.app/download' },
 ];
 
 const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
@@ -32,6 +33,14 @@ async function post(path, body) {
 }
 
 const WALLET_KEY = 'marblerush.wallet';
+
+/** The name of the wallet this browser signed in with ("Phantom"), or a plain fallback, for button copy. */
+export function walletName() {
+  let id = null;
+  try { id = localStorage.getItem(WALLET_KEY); } catch { /* private mode */ }
+  const names = { phantom: 'Phantom', solflare: 'Solflare', backpack: 'Backpack' };
+  return names[id] || 'your wallet';
+}
 
 /** The wallet this browser signed in with, connected again (silently when it is already trusted). */
 export async function activeProvider(address) {

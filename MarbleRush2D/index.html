@@ -1,25 +1,61 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-palette="ivory">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#07080c" />
+<meta name="theme-color" content="#0E0C0A" />
 <title>MarbleRush · Live Marble Racing</title>
+<meta name="description" content="Back a marble. Watch it drop. Live marble racing, provably fair on Solana. Devnet prototype." />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="MarbleRush" />
+<meta property="og:title" content="MarbleRush · Back a marble. Watch it drop." />
+<meta property="og:description" content="Live marble racing. Provably fair on Solana." />
+<meta property="og:image" content="assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="MarbleRush: Back a marble. Watch it drop. Provably fair on Solana." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="MarbleRush · Back a marble. Watch it drop." />
+<meta name="twitter:description" content="Live marble racing. Provably fair on Solana." />
+<meta name="twitter:image" content="assets/og.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=JetBrains+Mono:wght@500;600;700&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap" />
+<script src="js/palette.js"></script>
+<link rel="stylesheet" href="css/tokens.css" />
 <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <!-- the course: full bleed, everything else floats over it -->
   <div id="stage"><canvas id="board"></canvas></div>
 
+  <!-- Logo symbols from the design (brand.dc.html: Hybrid simplified for 33-63px, Drop v2 compact for 32px and under). -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <radialGradient id="gGl" cx="50%" cy="50%" r="50%"><stop offset="0" style="stop-color:var(--celebrate);stop-opacity:.06"/><stop offset=".72" style="stop-color:var(--celebrate);stop-opacity:.16"/><stop offset="1" style="stop-color:var(--celebrate);stop-opacity:.55"/></radialGradient>
+      <radialGradient id="gTl" cx="34%" cy="28%" r="46%"><stop offset="0" style="stop-color:var(--light);stop-opacity:.28"/><stop offset="1" style="stop-color:var(--light);stop-opacity:0"/></radialGradient>
+      <clipPath id="cpG"><circle cx="50" cy="50" r="42"/></clipPath>
+      <symbol id="g-d" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" style="fill:var(--bg);fill-opacity:.55"/><circle cx="50" cy="50" r="46" style="fill:url(#gGl)"/><circle cx="50" cy="50" r="46" style="fill:url(#gTl)"/><g clip-path="url(#cpG)"><g transform="rotate(-18 50 50)"><path d="M4 60 C 26 28, 56 78, 96 34 L 96 50 C 58 92, 28 46, 4 76 Z" transform="translate(0 6)" style="fill:var(--m-frs);opacity:.92"/><path d="M4 60 C 26 28, 56 78, 96 34 L 96 50 C 58 92, 28 46, 4 76 Z" transform="translate(2 -3) rotate(180 50 50) translate(50 50) scale(.55) translate(-50 -50)" style="fill:var(--m-bul);opacity:.92"/></g></g><path d="M76 68 A 32 32 0 0 1 58 83" style="fill:none;stroke:var(--light);stroke-width:3;stroke-linecap:round;opacity:.45"/><circle cx="50" cy="50" r="46" style="fill:none;stroke:var(--celebrate);stroke-width:1;opacity:.4"/><ellipse cx="34" cy="29" rx="13" ry="7" transform="rotate(-35 34 29)" style="fill:var(--light);opacity:.95"/><circle cx="65" cy="22" r="2.5" style="fill:var(--light);opacity:.55"/></symbol>
+      <symbol id="g-cd" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" style="fill:var(--bg);fill-opacity:.55"/><circle cx="50" cy="50" r="46" style="fill:url(#gGl)"/><circle cx="50" cy="50" r="46" style="fill:url(#gTl)"/><g clip-path="url(#cpG)"><g transform="rotate(-18 50 50)"><path d="M4 60 C 26 28, 56 78, 96 34 L 96 56 C 58 98, 28 50, 4 82 Z" style="fill:var(--celebrate)"/></g></g><circle cx="50" cy="50" r="46" style="fill:none;stroke:var(--celebrate);stroke-width:2.5;opacity:.5"/><ellipse cx="34" cy="29" rx="16" ry="9" transform="rotate(-35 34 29)" style="fill:var(--light);opacity:.95"/></symbol>
+      <symbol id="hybs-d" viewBox="0 0 64 64"><circle cx="8" cy="12" r="5" style="fill:var(--m-blz)"/><circle cx="18" cy="26" r="5" style="fill:var(--m-frs)"/><circle cx="46" cy="26" r="5" style="fill:var(--m-vnm)"/><circle cx="56" cy="12" r="5" style="fill:var(--m-roy)"/><use href="#g-d" x="15" y="29.5" width="34" height="34"/></symbol>
+      <symbol id="drop2c-d" viewBox="0 0 64 64"><use href="#g-cd" x="2" y="2" width="60" height="60"/></symbol>
+    </defs>
+  </svg>
+
   <!-- ============================ top bar ============================ -->
   <header class="topbar" data-hud>
     <div class="brand">
-      <span class="logo" aria-hidden="true"></span>
-      <h1>Marble<em>Rush</em></h1>
-      <span class="tag" id="roundTag">#1</span>
+      <h1 class="lockup" aria-label="MarbleRush">
+        <svg class="mark mark-hyb" width="40" height="40" aria-hidden="true"><use href="#hybs-d"/></svg>
+        <svg class="mark mark-drop" width="32" height="32" aria-hidden="true"><use href="#drop2c-d"/></svg>
+        <span class="word">Marble<em>Rush</em></span>
+      </h1>
+      <span class="brand-sep" aria-hidden="true"></span>
+      <span class="tag" id="roundTag">Round 1</span>
+      <span class="devnet" title="Solana devnet: test money only, no real funds">DEVNET</span>
     </div>
 
     <div class="clock">
@@ -28,15 +64,16 @@
     </div>
 
     <div class="right">
-      <span class="fair" title="The race is fixed by this hash before betting opens; the seed is revealed when the gates open.">
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1l6 2.5v4.2c0 3.6-2.6 6.3-6 7.3-3.4-1-6-3.7-6-7.3V3.5L8 1zm-1 9.2l4.6-4.6-1.1-1.1L7 8l-1.5-1.5-1.1 1.1L7 10.2z"/></svg>
-        <span id="fairLabel">Provably fair</span><code id="commitment">-</code>
-      </span>
+      <button type="button" class="fair" title="The race is fixed by this hash before betting opens; the seed is revealed when the gates open.">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+        <span id="fairLabel">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="commitment">-</code>
+      </button>
       <div class="wallet">
-        <span>Balance</span>
+        <span class="lbl">Balance</span>
         <strong id="balance">-</strong>
+        <i class="lowtag" id="lowTag" hidden>LOW</i>
       </div>
-      <button id="walletBtn" class="walletbtn" hidden>Connect wallet</button>
+      <button id="walletBtn" class="walletbtn" hidden>Connect</button>
       <button id="helpBtn" class="iconbtn" title="How MarbleRush works" aria-label="How it works">?</button>
     </div>
   </header>
@@ -44,58 +81,124 @@
   <!-- ===================== left: the timing tower ===================== -->
   <aside class="tower" id="standingsPanel" data-hud>
     <div class="tower-head">
-      <span class="tower-title">Classification</span>
+      <span class="tower-title" id="towerRound">Round 1</span>
+      <span class="tower-state" id="towerState">GRID</span>
+    </div>
+    <div class="tower-sec">
+      <span class="lbl">Section</span>
       <span class="sector" id="sectionName">Starting grid</span>
     </div>
+    <div class="tower-prog" aria-hidden="true"><span class="bar"><i id="towerBar"></i></span><span class="pct" id="towerPct">0%</span></div>
     <ol id="standings" class="tower-rows"></ol>
-    <!-- the whole course, start to finish, with every coin on it -->
-    <div class="coursemap" id="courseMap" aria-label="Course progress">
-      <div class="cm-track"></div>
-      <div class="cm-marks" id="cmMarks"></div>
-      <div class="cm-dots" id="cmDots"></div>
-    </div>
   </aside>
+
+  <!-- Course progress: a thin rail on the left wall of the course column, placed from renderer.courseRect().
+       Event markers with names, and every marble's number on it. -->
+  <div class="coursemap" id="courseMap" role="img" aria-label="Course progress">
+    <div class="cm-track"><i id="cmFill"></i></div>
+    <div class="cm-marks" id="cmMarks"></div>
+    <div class="cm-dots" id="cmDots"></div>
+  </div>
+
+  <!-- ===================== betting: clock ring ===================== -->
+  <!-- A medallion hanging from the top bar's centre. data-hud="top": the renderer frames the course BELOW it. -->
+  <div class="ring" id="lobby" data-hud="top" role="timer" aria-label="Betting clock">
+    <svg viewBox="0 0 176 176" aria-hidden="true"><circle class="rk" cx="88" cy="88" r="80"/><circle class="rf" id="lobbyFill" cx="88" cy="88" r="80"/></svg>
+    <div class="ring-in">
+      <span class="ring-lbl" id="lobbyLabel">Betting</span>
+      <strong id="lobbyClock">0:30</strong>
+      <span class="ring-cap">left to bet</span>
+      <span class="ring-cap ring-rnd" id="ringRnd"></span>
+    </div>
+  </div>
+
+  <!-- Phones only: the proof pill and DEVNET under the ring (the top bar's shield steps aside while betting). -->
+  <div class="mproof" id="mProof" data-hud="top">
+    <button type="button" class="proofpill sm" id="mFair">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+      <span id="mFairLabel">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="mFairHash">-</code>
+    </button>
+    <span class="devnet">DEVNET</span>
+  </div>
 
   <!-- ======================= right: market + slip ===================== -->
   <aside class="rail" id="rail" data-hud>
-    <section class="card cam">
-      <div class="card-head"><span>Side cam</span><span id="camName" class="muted">-</span></div>
+    <!-- Phones: the rail is the bottom sheet (peek / half / full). The handle drags it; the latest bet is its first line. -->
+    <button type="button" class="grab" id="sheetGrab" aria-label="Market sheet: drag, or press up and down to resize"><span></span></button>
+    <button type="button" class="betpeek" id="betPeek" aria-label="Latest bet. Open all live bets"></button>
+
+    <!-- race only: what my marble is doing and what it pays; tap to follow it -->
+    <section class="mycard" id="myMarble" hidden></section>
+
+    <section class="card cam" id="camCard">
+      <div class="card-head">
+        <span class="lbl">Side cam</span><span id="camName" class="who">-</span>
+        <button type="button" class="collapse" id="camToggle" aria-expanded="true" aria-controls="leaderCam" aria-label="Collapse side cam"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+      </div>
       <canvas id="leaderCam"></canvas>
     </section>
 
+    <!-- race only: the closed pool and what each marble pays -->
+    <section class="card finalpool" id="finalPool">
+      <div class="fp-head"><span class="lbl">Final pool</span><span class="amt"><b id="fpTotal">0</b> <small id="fpCur"></small></span></div>
+      <div class="fp-note" id="fpNote">Betting closed</div>
+      <div class="fp-cols"><span>Marble</span><span>Win</span><span>2nd</span></div>
+      <ul class="fp-rows" id="fpRows"></ul>
+    </section>
+
     <section class="card market tote" id="totePanel">
-      <div class="card-head">
-        <span>Market</span>
-        <span class="muted"><span id="places">Top 2 paid</span> · Pool <strong id="poolTotal">0.00</strong></span>
+      <div class="mk-head">
+        <div class="mk-pool"><span class="lbl">Total pool</span><span class="amt"><b id="poolTotal">0.00</b> <small id="poolCur"></small></span></div>
+        <div class="mk-rules"><b id="places">2 places paid</b><span>after <span id="rakePct">5%</span> rake</span></div>
+        <span class="mk-short" id="mkShort"></span>
       </div>
+      <div class="mk-cols" aria-hidden="true"><span>Marble<em class="m-only"> · tap for 2nd odds</em></span><span>Win</span><span>2nd</span><span>Pool</span><span>Bkrs</span></div>
       <ul id="tote" class="runners"></ul>
 
-      <div class="lobby" id="lobby">
-        <div class="lobbyrow"><span id="lobbyLabel">Betting closes in</span><strong id="lobbyClock">0:30</strong></div>
-        <div class="lobbybar"><i id="lobbyFill"></i></div>
+      <!-- The dock keeps one height in every state: a 40px status row, 48px chips, the 56px button, a 20px hint. -->
+      <div class="slip" id="slip">
+        <div class="slip-row">
+          <div class="slip-head" id="slipHead"><span class="lbl" id="stakeLbl">Stake</span><span class="for" id="betFor">No marble selected</span></div>
+          <div class="steps3" id="betSteps" role="progressbar" aria-valuemin="1" aria-valuemax="3" hidden></div>
+          <div class="notice" id="betNotice" role="status" hidden></div>
+        </div>
+        <div class="stakes" id="stakes" role="group" aria-label="Stake"></div>
+        <button id="placeBet" class="cta" disabled>Pick a marble</button>
+        <p class="fineprint" id="betHint"></p>
       </div>
-
-      <div class="slip">
-        <div class="stakes" id="stakes"></div>
-        <button id="placeBet" class="cta" disabled>Select a marble</button>
-        <p class="fineprint">Rake <span id="rakePct">5%</span> · parimutuel: odds move as money arrives</p>
-      </div>
     </section>
 
-    <section class="card feedcard">
-      <div class="card-head"><span>Live bets</span><span id="feedCount" class="muted">-</span></div>
-      <ul id="feed" class="feed"></ul>
-    </section>
+    <!-- ================== betting: proof, live bets, form guide ================== -->
+    <!-- A fixed left column on desktop. On phones it is the rest of the sheet, below the market (the full snap). -->
+    <aside class="leftcol" id="betLeft" data-hud>
+      <section class="card proofcard" id="proofCard">
+        <span class="lbl">Provably fair</span>
+        <div class="proofpill" id="proofPill">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+          <span id="proofState">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="proofHash">-</code>
+        </div>
+        <p id="proofText"></p>
+        <button type="button" class="ghost" id="proofVerify">Round proof</button>
+      </section>
 
-    <section class="card">
-      <div class="card-head"><span>Recent races</span></div>
-      <ul id="history" class="history"></ul>
-    </section>
+      <section class="card feedcard">
+        <div class="card-head"><span>Live bets <span id="feedCount" class="count">-</span></span><span class="livedot"><i aria-hidden="true"></i>LIVE</span></div>
+        <ul id="feed" class="feed"></ul>
+      </section>
 
-    <section class="card">
-      <div class="card-head"><span>Your record</span></div>
-      <dl id="record" class="record"></dl>
-    </section>
+      <!-- recent races and your record: P2, folded away -->
+      <details class="card formguide" id="formGuide">
+        <summary>Form guide</summary>
+        <div class="fg-block"><span class="lbl">Recent races</span><ul id="history" class="history"></ul></div>
+        <div class="fg-block"><span class="lbl">Your record</span><dl id="record" class="record"></dl></div>
+      </details>
+
+      <!-- Phones: the top-bar chip is display-only, so the account is one tap away here. -->
+      <button type="button" class="walletrow" id="walletRow"><span class="lbl">Wallet</span><b id="walletRowTxt">Connect</b></button>
+    </aside>
+
+    <!-- Phones, during the race: the sheet is locked at peek and is this bar (the only bottom band). -->
+    <div class="peekbar" id="peekBar"></div>
   </aside>
 
   <!-- camera: the director, the pack, the leader, or any one marble -->
@@ -109,73 +212,96 @@
   <div class="banner" id="banner" hidden></div>
 
   <!-- ============================ overlays ============================ -->
+  <!-- Countdown: three ivory lamps, one per second, out at GO. The HUD steps back to the edges. -->
   <div class="overlay lights" id="countdownOverlay" hidden>
-    <div class="gantry" id="gantry"><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="count" id="countdownValue">3</div>
-    <p id="countdownNote">Marbles ready</p>
+    <div class="gantry-wrap">
+      <div class="wires" aria-hidden="true"><i></i><i></i></div>
+      <div class="gantry" id="gantry" role="img" aria-label="Start lights"><i></i><i></i><i></i></div>
+    </div>
+    <div class="count" id="countdownValue" aria-live="assertive">3</div>
+    <p id="countdownNote">Marbles in the gate</p>
   </div>
+  <div class="ridingchip" id="ridingChip" hidden></div>
 
   <canvas id="confetti" aria-hidden="true"></canvas>
 
-  <div class="overlay" id="resultOverlay" hidden>
-    <div class="card result">
-      <p class="kicker">Chequered flag</p>
-      <div class="podium" id="podium"></div>
-      <div class="winner"><span class="swatch" id="winSwatch"></span><h2 id="winName">-</h2><span class="wintime" id="winTime">-</span></div>
-      <p class="payout" id="payout"></p>
-      <div class="burst" id="burst" aria-hidden="true"></div>
-      <ol class="final" id="finalOrder"></ol>
-      <div class="koreplay" id="koReplay" hidden>
-        <div class="kohead"><span>Knockout replay</span><span id="koLabel"></span></div>
-        <canvas id="koCanvas"></canvas>
+  <!-- Results: the course stays visible. Final order and replay on the left, the podium over the course,
+       my result and the next-round ring on the right. The two data-hud columns match the tower and the
+       right stack, so the course is framed exactly as it was in the race. -->
+  <div class="results" id="resultOverlay" hidden>
+    <button type="button" class="paidpill" id="paidPill" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+      <b id="paidTxt">Round paid out on Solana</b><b aria-hidden="true">·</b><u id="paidSig"></u>
+    </button>
+
+    <!-- On desktop this wrapper is display:contents and the panels sit where they always did. On phones it is the
+         result sheet (frames 12a to 12d, brief section 7): payout, podium, finishing order, with the knockout replay
+         pulled up from below and the next-round bar pinned in the thumb zone. -->
+    <div class="resshell" id="resSheet" data-hud>
+      <button type="button" class="grab" id="resGrab" aria-label="Result sheet: drag, or press up and down to resize"><span></span></button>
+      <p class="kopull" id="koPull" hidden>Pull up · knockout replay</p>
+      <section class="podiumcard" id="podiumCard" aria-label="Podium">
+        <div class="pc-head"><span class="pc-tag" id="pcTag">Winner</span><span class="lbl">Finish cam</span></div>
+        <div class="winner"><span class="tok lg" id="winSwatch"></span>
+          <div class="wn"><h2 id="winName">-</h2><span class="sub" id="winSub"></span></div>
+          <span class="wintime" id="winTime">-</span></div>
+        <div class="podium" id="podium"></div>
+      </section>
+
+      <div class="resleft" id="resLeft" data-hud>
+        <section class="card finalpanel" aria-label="Final order">
+          <div class="fo-head"><span class="lbl" id="foTitle">Final order</span><b id="foState">FINISHED</b></div>
+          <ol class="final" id="finalOrder"></ol>
+        </section>
+        <section class="koreplay" id="koReplay" hidden>
+          <canvas id="koCanvas"></canvas>
+          <div class="kt"><span class="lbl">Knockout replay</span><span class="kl" id="koLabel"></span></div>
+        </section>
       </div>
-      <button id="nextRace" class="cta">Next race</button>
-      <p class="nextnote" id="nextNote"></p>
+
+      <div class="proofbar" id="proofBar">
+        <span class="proofpill sm" id="resProof"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span id="resProofText">Provably fair</span><i class="dot" aria-hidden="true">·</i><code id="resProofHash">-</code></span>
+        <button type="button" class="ghost" id="resProofBtn">Round proof</button>
+      </div>
+
+      <aside class="resstack" id="resStack" data-hud>
+        <section class="myres" id="myResult" aria-live="polite">
+          <div class="mr-top"><span class="mr-tag" id="resTag">WIN</span><span class="lbl" id="resWho"></span></div>
+          <div class="mr-head"><span class="tok lg" id="resTok"></span><h3 id="resHead"></h3></div>
+          <p class="mr-line" id="resLine" hidden></p>
+          <div class="mr-pay"><span class="lbl" id="resPayLbl">Payout</span><span class="big"><b id="payout">0.00</b> <small id="resCur"></small></span></div>
+          <div class="mr-stats" id="resStats"></div>
+          <button type="button" class="ghost paidlink" id="resPaid" hidden></button>
+          <button type="button" class="cta" id="resConnect" hidden>Connect wallet</button>
+          <div class="burst" id="burst" aria-hidden="true"></div>
+        </section>
+        <section class="nextcard" id="nextCard" role="timer" aria-label="Next round">
+          <div class="nring"><svg viewBox="0 0 96 96" aria-hidden="true"><circle class="rk" cx="48" cy="48" r="42"/><circle class="rf" id="nextFill" cx="48" cy="48" r="42"/></svg><b id="nextSecs">-</b></div>
+          <div class="ntxt"><span class="lbl" id="nextLbl">Next round</span><strong id="nextNote"></strong>
+            <button id="nextRace" class="ghost" hidden>Next race</button></div>
+          <button type="button" class="cta" id="nextConnect" hidden>Connect wallet</button>
+        </section>
+      </aside>
+  
+      <div class="podm" id="podiumM" aria-label="Podium"></div>
     </div>
   </div>
 
-  <div class="overlay modal" id="walletOverlay" hidden>
-    <div class="card help" id="walletCard"></div>
+  <div class="overlay modal sheetov" id="walletOverlay" hidden>
+    <div class="card help sheetcard" id="walletCard"></div>
   </div>
 
-  <div class="overlay modal" id="helpOverlay" hidden>
-    <div class="card help">
-      <p class="kicker">How MarbleRush works</p>
-      <ol class="steps">
-        <li><b>Back a marble.</b> Every stake goes into one pool. Odds are what
-            the pool would pay right now, and they move as money arrives,
-            exactly like a tote board.</li>
-        <li><b>Ready up.</b> When everyone at the table is ready the lights go
-            out. A 30 second clock runs the lobby: bet before it ends, or watch
-            this race and join the next.</li>
-        <li><b>Every course is new.</b> Built for each race from a library of
-            over a hundred sections, about 3 to 4 minutes long, and arranged
-            so the race stays open to the end: one of two fair openers, calm
-            sections early, a mix of machines in the run-in, and a Mempool
-            that bunches the field.</li>
-        <li><b>Machines wear.</b> The first marble to reach a machine meets it
-            at full strength: the longest flipper, the longest freeze, the
-            longest wait at a laser or a cup, the strongest pull of a whale's
-            gravity well. Each marble after meets it a little weaker. Nothing knows who is leading; being first is simply
-            what makes you meet it first.</li>
-        <li><b>Chaos is part of the course.</b> Sweeping white and grey holes
-            warp a marble about 3 seconds; cryo traps freeze for 2; bridges,
-            vaults, claws and reorgs hold or send back a moment. None of it
-            knows who is leading.</li>
-        <li><b>Knockouts are rare.</b> The Jump, the Edge, the Breach or a black
-            hole can take a marble out, at most two a race, so both paid places
-            always go to finishers.</li>
-        <li><b>Top two are paid.</b> 75% of the pool to the winner's backers,
-            25% to the runner-up's, each split in proportion to stake.</li>
-        <li><b>Provably fair.</b> The race is decided before betting opens.
-            Its seed's SHA-256 hash is shown while you bet, and the seed is
-            revealed at the lights so anyone can replay the race.</li>
-      </ol>
-      <p class="note">A parimutuel pool pays shares of a fixed pot rather than
-        fixed multiples, so a heavily backed marble pays less even when it
-        wins. Rake is 5%. All money here is demo money.</p>
-      <button id="helpClose" class="cta">Got it</button>
-    </div>
+  <div class="overlay modal sheetov" id="proofOverlay" hidden>
+    <div class="card help sheetcard" id="proofSheet"></div>
+  </div>
+
+  <div class="overlay modal sheetov" id="helpOverlay" hidden>
+    <div class="card help sheetcard hstep" id="helpCard"></div>
+  </div>
+
+  <div class="connbar" id="connBanner" role="status" aria-live="polite" hidden></div>
+  <div class="overlay modal sheetov" id="offlineOverlay" hidden>
+    <div class="card help sheetcard" id="offlineCard"></div>
   </div>
 
   <script type="module" src="js/main2d.js"></script>
