@@ -26,6 +26,13 @@
 
 import { MARBLE_DATA } from '../../js/racers.js';
 import { SECTION_STATS } from './sectionStats.js';
+import { dsin, dcos } from './engine2d.js';
+
+// The course is built from the seed in Node AND in every browser, so it must come out the same to the last bit.
+// Math.sin, Math.cos and Math.hypot are not specified to the bit: Chrome 154 and Node 24 round some inputs one
+// ulp apart, which moved a few walls by 1e-16 and, a minute into a long race, put the browser's marbles in a
+// different place from the server's. dsin/dcos and a plain sqrt are exact arithmetic, identical everywhere.
+const hyp = (x, y) => Math.sqrt(x * x + y * y);
 
 export const TRACK_W = 800;
 export const WALL_L  = 40;
@@ -228,10 +235,10 @@ function makeCtx(out, baseY, rng, section = 0) {
     /** A polyline arc of walls, `a0` to `a1` radians, screen angles (y down). */
     arc(cx, cy, R, a0, a1, opts, step = 0.16) {
       const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / step));
-      let px = cx + Math.cos(a0) * R, py = cy + Math.sin(a0) * R;
+      let px = cx + dcos(a0) * R, py = cy + dsin(a0) * R;
       for (let i = 1; i <= n; i++) {
         const a = a0 + (a1 - a0) * (i / n);
-        const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+        const x = cx + dcos(a) * R, y = cy + dsin(a) * R;
         this.seg(px, py, x, y, opts);
         px = x; py = y;
       }
@@ -280,7 +287,7 @@ function makeCtx(out, baseY, rng, section = 0) {
      * good a perch as a circle's apex.
      */
     island(x, y, r, len, angle, extra) {
-      const hx = Math.cos(angle) * len / 2, hy = Math.sin(angle) * len / 2;
+      const hx = dcos(angle) * len / 2, hy = dsin(angle) * len / 2;
       out.capsules.push({ ...(extra || {}),
         ax: x - hx, ay: y + baseY - hy,
         bx: x + hx, by: y + baseY + hy,
@@ -364,8 +371,8 @@ function makeCtx(out, baseY, rng, section = 0) {
       // Each gap also carries its direction and the cosine of its half-width,
       // computed here ONCE, so the engine can test "is the marble in a gap"
       // with a dot product instead of calling atan2 every tick.
-      const g = gaps.map(p => ({ ...p, cx: Math.cos(p.angle), cy: Math.sin(p.angle),
-                                 cosHalf: Math.cos(p.half) }));
+      const g = gaps.map(p => ({ ...p, cx: dcos(p.angle), cy: dsin(p.angle),
+                                 cosHalf: dcos(p.half) }));
       out.bowls.push({ x, y: y + baseY, R, gaps: g });
     },
 
@@ -389,7 +396,7 @@ function makeCtx(out, baseY, rng, section = 0) {
       const len = opts.len ?? 170, fr = opts.fr ?? 9;
       const rest = opts.rest ?? 0.50, up = opts.up ?? 0.02;
       const px = side < 0 ? WALL_L : WALL_R;
-      const dir = (a) => ({ x: -side * Math.cos(a), y: Math.sin(a) });
+      const dir = (a) => ({ x: -side * dcos(a), y: dsin(a) });
       const r = dir(rest), u = dir(up);
       // WEAR (Sanjay): a flipper starts `grow` longer and loses `wear` of
       // length for every marble it throws, never below `len`. The first
@@ -517,7 +524,7 @@ function chartSection(ctx, rng, mode) {
     const rallyW = w * (moon ? 0.62 : 0.4), dipW = w - rallyW;
     const rally = (xs, ys) => {
       const xe = xs + rallyW, ye = ys - rise;
-      const L = Math.hypot(rallyW, rise), ux = rallyW / L, uy = -rise / L;
+      const L = hyp(rallyW, rise), ux = rallyW / L, uy = -rise / L;
       const pl = 34;                                   // the pad: the rally's first 34 units
       const period = Math.round(240 * rng.range(0.8, 1.4));
       ctx.seg(xs, ys, xs + ux * pl, ys + uy * pl, {
@@ -922,8 +929,8 @@ export const SECTIONS = [
       // as the drain, so it cannot pinch below MIN_GAP.
       const a0 = Math.PI / 2 + exit - DRAIN_HALF;
       const a1 = Math.PI / 2 + exit + DRAIN_HALF;
-      const e0x = cx + Math.cos(a0) * R, e0y = cy + Math.sin(a0) * R;
-      const e1x = cx + Math.cos(a1) * R, e1y = cy + Math.sin(a1) * R;
+      const e0x = cx + dcos(a0) * R, e0y = cy + dsin(a0) * R;
+      const e1x = cx + dcos(a1) * R, e1y = cy + dsin(a1) * R;
       ctx.seg(e0x, e0y, e0x, cy + R + 170);
       ctx.seg(e1x, e1y, e1x, cy + R + 170);
     },
@@ -944,7 +951,7 @@ export const SECTIONS = [
       // no corner for a marble to balance on.
       const r = 30, cy = 60 + r;
       for (const s of [-1, 1]) {
-        const dx = s * 210, dy = 370, l = Math.hypot(dx, dy);
+        const dx = s * 210, dy = 370, l = hyp(dx, dy);
         ctx.seg(apex + (dx / l) * r, cy + (dy / l) * r, apex + dx, 430);
       }
       ctx.dome(apex, cy, r);
@@ -1044,7 +1051,7 @@ export const SECTIONS = [
       // COSINE, so the channel opens at a peak where the curve is momentarily
       // straight. Starting on a sine zero puts the mouth at the steepest lean
       // in the whole block, and the field meets it side-on.
-      const cx = (y) => 400 + A * Math.cos(((y - y0) / P) * Math.PI * 2) + phase;
+      const cx = (y) => 400 + A * dcos(((y - y0) / P) * Math.PI * 2) + phase;
 
       // Build the wall points FIRST, then attach the funnel to where the walls
       // actually begin.
@@ -1062,7 +1069,7 @@ export const SECTIONS = [
         const yb = y0 + ((y1 - y0) * Math.max(0, i - 1)) / steps;
         const yf = y0 + ((y1 - y0) * Math.min(steps, i + 1)) / steps;
         const dx = cx(yf) - cx(yb), dy = yf - yb;
-        const l = Math.hypot(dx, dy) || 1;
+        const l = hyp(dx, dy) || 1;
         const nx = dy / l, ny = -dx / l;
         L.push([x - nx * half, y - ny * half]);
         Rr.push([x + nx * half, y + ny * half]);
@@ -1102,7 +1109,7 @@ export const SECTIONS = [
           // better guarantee than hoping nothing gets in.
           const r = 15, cy = y + r;
           for (const s of [-1, 1]) {
-            const dx = s * hw, dy = h - r, l = Math.hypot(dx, dy);
+            const dx = s * hw, dy = h - r, l = hyp(dx, dy);
             ctx.seg(x + (dx / l) * r, cy + (dy / l) * r, x + dx, y + h);
           }
           ctx.dome(x, cy, r);
@@ -1187,8 +1194,8 @@ export const SECTIONS = [
       ctx.island(cx, cy, 105, 110, rng.range(0.5, 1.0));
 
       const a0 = Math.PI / 2 + exit - HALF, a1 = Math.PI / 2 + exit + HALF;
-      ctx.seg(cx + Math.cos(a0) * R, cy + Math.sin(a0) * R, cx + Math.cos(a0) * R, cy + R + 150);
-      ctx.seg(cx + Math.cos(a1) * R, cy + Math.sin(a1) * R, cx + Math.cos(a1) * R, cy + R + 150);
+      ctx.seg(cx + dcos(a0) * R, cy + dsin(a0) * R, cx + dcos(a0) * R, cy + R + 150);
+      ctx.seg(cx + dcos(a1) * R, cy + dsin(a1) * R, cx + dcos(a1) * R, cy + R + 150);
     },
   },
   {
@@ -1250,7 +1257,7 @@ export const SECTIONS = [
         const n = r % 2 === 0 ? 3 : 2;
         for (const x of ctx.place(Array(n).fill(half))) {
           const tilt = (rng() < 0.5 ? -1 : 1) * rng.range(0.14, 0.30);
-          const dx = Math.cos(tilt) * half, dy = Math.sin(tilt) * half;
+          const dx = dcos(tilt) * half, dy = dsin(tilt) * half;
           ctx.spring(x - dx, y - dy, x + dx, y + dy, { base: T.base ?? 420, gain: T.gain ?? 0.55 });
         }
       }
@@ -2186,7 +2193,7 @@ export const SECTIONS = [
         const y = 230 + r * 220, n = r % 2 ? 2 : 3, half = 40;
         for (const x of ctx.place(Array(n).fill(half))) {
           const tilt = (rng() < 0.5 ? -1 : 1) * rng.range(0.14, 0.3);
-          const dx = Math.cos(tilt) * half, dy = Math.sin(tilt) * half;
+          const dx = dcos(tilt) * half, dy = dsin(tilt) * half;
           ctx.spring(x - dx, y - dy, x + dx, y + dy, { base: 380, gain: 0.5 });
         }
         ctx.peg(r % 2 ? 400 + rng.spread(40) : (rng() < 0.5 ? 260 : 540), y - 110, 20, { rest: 1.1, mu: 0.02 });
@@ -2977,7 +2984,7 @@ export function buildTrack(rng, opts = {}) {
       const near = (ax, ay, bx, by) => {
         const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
         let u = ((b.x - ax) * dx + (b.y - ay) * dy) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u;
-        return Math.hypot(b.x - ax - u * dx, b.y - ay - u * dy);
+        return hyp(b.x - ax - u * dx, b.y - ay - u * dy);
       };
       for (let j = before; j < out.segments.length; j++) {
         const q = out.segments[j];
@@ -2985,7 +2992,7 @@ export function buildTrack(rng, opts = {}) {
       }
       for (const q of out.springs) g = Math.min(g, near(q.ax, q.ay, q.bx, q.by) - b.r - 36);
       // ...and every other peg, some of which may have grown already.
-      for (const o of out.bumpers) if (o !== b) g = Math.min(g, Math.hypot(o.x - b.x, o.y - b.y) - b.r - o.r - 38);
+      for (const o of out.bumpers) if (o !== b) g = Math.min(g, hyp(o.x - b.x, o.y - b.y) - b.r - o.r - 38);
       g = Math.max(0, Math.floor(g));
       if (g > 0) { b.min = b.r; b.r += g; b.wear = b.wearStep; }
       delete b.growWant; delete b.wearStep;
