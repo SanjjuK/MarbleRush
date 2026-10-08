@@ -183,3 +183,10 @@ Rules from the approved prompt and the notes in the file: the bottom sheet becom
 - [ ] Palette switch (R4) works in both palettes on every screen, persists, and does not flash on load.
 - [ ] Signed-out spectator can connect from every phase; devnet badge visible; proof pill opens the proof card.
 - [ ] Nothing in `engine2d.js`, `track2d.js`, `scenes2d.js`, `sectionStats.js` changed by this work.
+
+## 10. Backlog after the port (2026-10-08)
+- [ ] "Replay it yourself" re-runs the race in the browser from the revealed seeds and shows "Re-ran the race · same finishing order ✓" next to the hash check (the engine is already in the page; 1-2 h).
+- [ ] Race lengths: Sprint ~1 min, Classic ~3 min, Marathon ~4 min. Rotation on the shared server ("Up next: Sprint" on the results card), a next-race picker in local practice mode; no separate home page before the hackathon. Each length needs a soak (stuck marbles, drama).
+- [ ] `og:image` / `twitter:image` to an absolute URL once the domain is known.
+- [ ] Run `npm run test:chain` on main (covers the S10 watch-only round refusal).
+- Decided: no tablet layout (768 uses the phone layout).
