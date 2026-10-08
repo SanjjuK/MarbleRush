@@ -36,8 +36,7 @@ import path from 'node:path';
 import { makeRng } from '../../js/rng.js';
 import { MARBLE_DATA } from '../../js/racers.js';
 import { PLACE_SHARES, RAKE, MIN_BET, STARTING_BALANCE } from '../../js/betting.js';
-import { buildTrack } from '../js/track2d.js';
-import { Engine2D, SIM_DT } from '../js/engine2d.js';
+import { race } from './racesim.mjs';
 import { buildPrint } from '../js/detcheck.js';
 import { createAuth, parseCookie, shortAddress } from './auth.mjs';
 import { openChain, scrub } from './chain.mjs';
@@ -154,7 +153,7 @@ const tableFor = (id) => (id == null || id === '') ? defaultTable() : (tables.ge
 /** The table that is playing round `id` right now, if any. */
 const tableOfRound = (id) => [...tables.values()].find(t => t.round && t.round.id === id) || null;
 
-const TABLE_DEFAULTS = { minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1 };
+const TABLE_DEFAULTS = { minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
 const CANCEL_PAUSE_MS = 3000;
 /** data from server/tables.json (or MR_TABLES); one house-bot table when there is no file. */
 async function loadTables() {
@@ -164,8 +163,49 @@ async function loadTables() {
   for (const c of list) {
     if (!/^[\w-]{1,24}$/.test(String(c.id))) throw new Error(`bad table id ${JSON.stringify(c.id)}`);
     // Tables start asleep: a round opens when the first person arrives.
-    tables.set(c.id, { id: c.id, name: c.name || c.id, cfg: { ...TABLE_DEFAULTS, ...c }, round: null, opening: null, idle: true });
+    tables.set(c.id, { id: c.id, family: c.id, n: 1, name: c.name || c.id, cfg: { ...TABLE_DEFAULTS, ...c }, round: null, opening: null, idle: true });
   }
+}
+
+/* Tables of one family ("live", "live-2", ...) share a config. Visitors are placed where the people are; when
+   a round has no seat left the next table of the family opens, and it closes again when its room is empty. */
+const instances = (family) => [...tables.values()].filter(t => t.family === family);
+const isFull = (t) => !!t.round && t.round.phase === 'betting' && seatsTaken(t.round) >= t.cfg.maxPlayers;
+
+/** Open another table of the family, if it is under its limit. House stakes are only on the first table. */
+function spawnInstance(family) {
+  const have = instances(family);
+  if (have.length >= have[0].cfg.maxTables) return null;
+  let n = 2; while (tables.has(`${family}-${n}`)) n++;
+  const base = have[0];
+  const t = { id: `${family}-${n}`, family, n, name: `${base.name} ${n}`, cfg: { ...base.cfg, bots: 'none' }, round: null, opening: null, idle: true };
+  tables.set(t.id, t);
+  console.log(`[tables] ${t.id} opened: the others are full`);
+  return t;
+}
+
+/** The table of `family` a newcomer should join: the busiest one with a seat to give, else a new one. */
+function pickInstance(family) {
+  const open = instances(family).filter(t => !isFull(t));
+  if (open.length) return open.sort((a, b) => viewers(b) - viewers(a) || a.n - b.n)[0];
+  return spawnInstance(family) || instances(family).sort((a, b) => a.n - b.n)[0];
+}
+
+/** Where a player turned away from `table` can go. Starts that table so it is ready by the time they arrive. */
+function overflowFor(table) {
+  const other = instances(table.family).filter(t => t !== table && !isFull(t)).sort((a, b) => viewers(b) - viewers(a) || a.n - b.n)[0] || spawnInstance(table.family);
+  if (other) openTable(other);
+  return other;
+}
+const fullReply = (res, table) => json(res, 409, { error: 'this table is full', full: true, move: overflowFor(table)?.id || null });
+
+/** One line per table for the lobby screen and for the stats. */
+function tableSummary(t) {
+  const r = t.round, asleep = t.idle || !r;
+  return { id: t.id, family: t.family, name: t.name, n: t.n, minPlayers: t.cfg.minPlayers, maxPlayers: t.cfg.maxPlayers, bots: t.cfg.bots,
+    token: r ? r.token : (t.cfg.token || null), phase: asleep ? 'asleep' : r.phase === 'cancelled' ? 'betting' : r.phase, round: r ? r.id : null,
+    bettors: asleep ? 0 : realBets(r).length, seats: asleep ? t.cfg.maxPlayers : Math.max(0, t.cfg.maxPlayers - seatsTaken(r)),
+    viewers: viewers(t), closesAt: !asleep && r.phase === 'betting' ? r.closesAt : null };
 }
 const viewers = (table) => [...clients.values()].filter(c => c.table === table.id).length;
 const realBets = (r) => r.bets.filter(b => b.pid);
@@ -335,30 +375,10 @@ export async function openRound(table = defaultTable()) {
   roundNo += 1;
   const courseSeed = randomBytes(8).toString('hex');
   const raceSeed = randomBytes(16).toString('hex');
-  const track = buildTrack(makeRng(courseSeed), T.blocks ? { count: T.blocks } : {});
-  const engine = new Engine2D({ track, rng: makeRng(raceSeed), racers: MARBLE_DATA });
-
-  // The authoritative run, plus a position every second for drift checks.
+  // The authoritative run, plus a position every second for drift checks. On a worker thread: it takes
+  // about half a second of CPU on a real course, and the other tables must keep talking meanwhile.
   const t0 = performance.now();
-  engine.settle();
-  const lanes = engine.marbles.map(m => m.lane);
-  const sync = [];
-  engine.openGate();
-  const order = [];
-  let guard = Math.ceil(T.maxRace / SIM_DT);
-  while (guard-- > 0 && !engine.allFinished) {
-    engine.step(true);
-    for (const m of engine.marbles) if (m.finished && !order.includes(m.index)) order.push(m.index);
-    if (engine.tick % 240 === 0) sync.push(engine.marbles.map(m => [+m.x.toFixed(3), +m.y.toFixed(3)]));
-  }
-  const out = engine.marbles.filter(m => m.out).sort((a, b) => b.outTime - a.outTime).map(m => m.index);
-  const result = {
-    finishOrder: order.concat(out),
-    eliminated: out,
-    times: engine.marbles.map(m => +m.finishTime.toFixed(2)),
-    time: +engine.time.toFixed(2),
-    nudges: engine.nudges,
-  };
+  const { lanes, sync, layout, result } = await race({ courseSeed, raceSeed, blocks: T.blocks });
   const ms = performance.now() - t0;
 
   const token = await pickToken(table);
@@ -366,9 +386,9 @@ export async function openRound(table = defaultTable()) {
   const minBet = tok ? tok.minBet : MIN_BET;
   const t = now();
   const round = table.round = {
-    id: roundNo, tableId: table.id, courseSeed, raceSeed, commitment: sha256(raceSeed), token, minBet, inflight: new Map(),
+    id: roundNo, tableId: table.id, tableName: table.name, cfg: table.cfg, courseSeed, raceSeed, commitment: sha256(raceSeed), token, minBet, inflight: new Map(),
     chain: { commit: { status: chain ? 'pending' : 'off' }, reveal: { status: chain ? 'idle' : 'off' } },
-    lanes, result, sync, layout: track.layout,
+    lanes, result, sync, layout,
     phase: 'betting', opensAt: t, closesAt: t + T.lobby * 1000,
     raceAt: 0, resultAt: 0, nextAt: 0,
     extended: 0, cancelled: null,
@@ -402,8 +422,8 @@ function publicRound(r) {
 
 /** What a browser needs to know about the table this round belongs to. */
 function tableInfo(r) {
-  const c = tables.get(r.tableId).cfg;
-  return { id: r.tableId, name: tables.get(r.tableId).name, minPlayers: c.minPlayers, maxPlayers: c.maxPlayers, bots: c.bots };
+  const c = r.cfg;
+  return { id: r.tableId, name: r.tableName, minPlayers: c.minPlayers, maxPlayers: c.maxPlayers, bots: c.bots };
 }
 
 function connectedPlayers(tableId) {
@@ -449,7 +469,9 @@ function cancelRound(table, r, reason) {
   const real = realBets(r);
   r.cancelled = reason;
   r.phase = 'cancelled';
-  r.nextAt = now() + CANCEL_PAUSE_MS;
+  // A table nobody bet at waits longer each time (3s, 6s, ... 30s) instead of sealing a round a minute for a lone spectator.
+  const pause = real.length ? (table.emptyCancels = 0, CANCEL_PAUSE_MS) : Math.min(30000, CANCEL_PAUSE_MS * 2 ** (table.emptyCancels = (table.emptyCancels || 0) + 1) / 2);
+  r.nextAt = now() + pause;
   if (r.token && chain) {
     if (real.length) {
       queueJobs('refund', r.id, r.token, real.map(b => ({ owner: b.pid, amount: b.amount })));
@@ -461,7 +483,7 @@ function cancelRound(table, r, reason) {
   }
   saveRoundState(r);
   console.log(`[round ${r.id}] cancelled: ${reason}; ${real.length} bet(s) refunded`);
-  broadcast('notice', { id: r.id, kind: 'cancelled', message: `Round cancelled: ${reason}. Stakes returned.` }, r.tableId);
+  broadcast('notice', { id: r.id, kind: 'cancelled', reopensAt: r.nextAt, message: real.length ? `Round cancelled: ${reason}. Stakes returned.` : `Waiting for players: ${reason}.` }, r.tableId);
 }
 
 /** Pay every backer. Shares of the net pool by finishing position. */
@@ -534,7 +556,7 @@ function tick(table) {
     }
   } else if ((r.phase === 'results' || r.phase === 'cancelled') && t >= r.nextAt && !table.opening && !table.idle) {
     // Nobody watching: the table sleeps instead of sealing rounds for an empty room. The next visitor wakes it.
-    if (viewers(table) === 0) table.idle = true;
+    if (viewers(table) === 0) { if (table.n > 1) { tables.delete(table.id); console.log(`[tables] ${table.id} closed: nobody left`); } else table.idle = true; }
     else openTable(table);
   }
 }
@@ -633,13 +655,16 @@ const cookie = (req, value, maxAge) =>
 async function api(req, res, url) {
   if (url.pathname === '/api/ping') return json(res, 200, { marblerush: true, now: now() });
   if (url.pathname === '/api/chain') return json(res, 200, chain ? chain.publicInfo() : { cluster: null, tokens: [] });
+  if (url.pathname === '/api/tables') return json(res, 200, { tables: [...tables.values()].map(tableSummary), now: now() });
   const token = parseCookie(req.headers.cookie, COOKIE);
   const pid = auth.sessionPid(token);                       // null: a spectator
 
   if (url.pathname === '/api/events') {
     const ip = clientIp(req);
     if (clients.size >= SSE_TOTAL || (sseByIp.get(ip) || 0) >= SSE_PER_IP) return json(res, 429, { error: 'too many open connections' });
-    const table = tableFor(url.searchParams.get('table'));
+    // ?table=live means "a Live table, wherever there is room"; with &pin=1 it means exactly that one.
+    const want = url.searchParams.get('table') || defaultTable().family;
+    const table = url.searchParams.get('pin') ? tables.get(want) : (instances(want).length ? pickInstance(want) : tables.get(want));
     if (!table) return json(res, 404, { error: 'no such table' });
     sseByIp.set(ip, (sseByIp.get(ip) || 0) + 1);
     res.on('close', () => { const n = (sseByIp.get(ip) || 1) - 1; if (n) sseByIp.set(ip, n); else sseByIp.delete(ip); });
@@ -679,7 +704,7 @@ async function api(req, res, url) {
   if (!body) return json(res, 400, { error: 'bad body' });
 
   if (url.pathname === '/api/auth/nonce') {
-    const out = auth.issueNonce({ address: String(body.address || ''), host: req.headers.host, ip: req.socket.remoteAddress });
+    const out = auth.issueNonce({ address: String(body.address || ''), host: req.headers.host, ip: clientIp(req) });
     return json(res, out.error ? (out.status || 400) : 200, out);
   }
   if (url.pathname === '/api/auth/verify') {
@@ -733,7 +758,7 @@ async function api(req, res, url) {
     if (!(marble >= 0 && marble < K)) return json(res, 400, { error: 'no such marble' });
     if (!(amount >= tok.minBet) || amount > tok.stakes[tok.stakes.length - 1] * 10) return json(res, 400, { error: 'stake not allowed' });
     if (r.bets.some(b => b.pid === pid) || (r.inflight.has(pid) && now() - r.inflight.get(pid) < 60000)) return json(res, 409, { error: 'already bet this round' });
-    if (seatsTaken(r) >= table.cfg.maxPlayers) return json(res, 409, { error: 'this table is full' });
+    if (seatsTaken(r) >= table.cfg.maxPlayers) return fullReply(res, table);
     let have;
     try { have = await chain.balanceOf(pid, r.token); } catch { return json(res, 502, { error: 'could not read your balance from Solana' }); }
     if (have < amount) return json(res, 400, { error: `not enough ${r.token} in your wallet` });
@@ -771,7 +796,7 @@ async function api(req, res, url) {
     if (!(marble >= 0 && marble < K)) return json(res, 400, { error: 'no such marble' });
     if (!(amount >= MIN_BET) || amount > w.balance) return json(res, 400, { error: 'stake not allowed' });
     if (r.bets.some(b => b.pid === pid)) return json(res, 409, { error: 'already bet this round' });
-    if (seatsTaken(r) >= table.cfg.maxPlayers) return json(res, 409, { error: 'this table is full' });
+    if (seatsTaken(r) >= table.cfg.maxPlayers) return fullReply(res, table);
     w.balance -= amount; w.stats.races += 1; w.stats.wagered += amount; walletsDirty = true;
     addBet(r, { pid, handle: w.name, marble, amount });
     broadcast('pool', poolMsg(r), table.id);

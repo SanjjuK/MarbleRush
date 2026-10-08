@@ -19,11 +19,15 @@ A **table** is one independent race loop with its own pool, set in `MarbleRush2D
 | Setting | Meaning |
 |---|---|
 | `minPlayers` | wallets that must have bet for the race to run. Short of it the lobby waits one more round of the clock, then the round is **cancelled and every stake is returned** (a refund transaction, plus a `void` memo that reveals the seed). `0` = the race always runs |
-| `maxPlayers` | seats per round (default 20). A full table turns the next bettor away; spectators are not limited |
+| `maxPlayers` | seats per round (default 20). When a round has no seat left the bettor is told which table to move to, and the next table of the family (`live-2`, `live-3`, ...) opens, up to `maxTables` (default 8). Overflow tables have no house stakes and close when their room is empty. Spectators are not limited |
 | `bots` | `house`: labelled house stakes so a lone visitor sees a live board, capped by `botBudget`. `none`: every unit in the pool is a player's |
 | `token` | fixed token for the table; leave it out to use the default token or the current show |
 
-The shipped config has **Practice** (RUSH, house bots, the race always runs) and **Live** (3 players needed, no bots). Without house stakes a pool can only pay out what players put in, minus the 5% rake, so a Live table cannot lose money on a round. Tables **sleep** when nobody is watching: no round is sealed for an empty room, and the next visitor wakes it.
+The shipped config has **Practice** (RUSH, house bots, the race always runs) and **Live** (3 players needed, no bots). Without house stakes a pool can only pay out what players put in, minus the 5% rake, so a Live table cannot lose money on a round. Tables **sleep** when nobody is watching: no round is sealed for an empty room, and the next visitor wakes it. A table that nobody bets at backs off (3 s, 6 s ... 30 s) instead of opening a round a minute for a lone spectator.
+
+`GET /api/tables` lists every table (phase, seats left, bettors, viewers). `GET /api/events?table=live` seats you at the busiest Live table that has room; add `&pin=1` to mean exactly that table. Bets name their table in the request body.
+
+**What one server handles** (`npm run test:load`, `npm run test:chain-load`): 100 players on separate addresses spread over 5 Practice tables of 20, with full-length courses, and the event loop never stalled for more than 30 ms. The race of every round is computed on worker threads (`server/racesim.mjs`, `MR_NO_WORKER=1` turns that off): a real course costs about half a second of CPU. On devnet, 20 players signing and submitting a bet at the same instant all landed within 4.4 s, and the pool paid out to the last unit. 20 is the validated seat count; the RPC provider's websocket limit (two of the 20 saw an HTTP 429 on confirmation and still confirmed) is what to watch before raising it.
 
 ## Any token
 
@@ -57,6 +61,7 @@ Configuration (all optional):
 | `MR_PORT` | listen port (default 8090) |
 | `MR_RPC` | Solana RPC URL. Else the first line of `server/data/rpc-url.txt`, else the public devnet node |
 | `MR_AUTHORITY_KEY` | the server key as a JSON byte array, instead of `server/data/authority.json` |
+| `MR_NO_WORKER=1` | race on the main thread instead of worker threads |
 | `MR_TABLES` | path to a tables file, instead of `server/tables.json` |
 | `MR_CHAIN_DIR` | where the chain files live (default `server/data`) |
 | `MR_FEE_PAYER=player` | players pay their own fee (fallback if a wallet refuses server-paid fees) |
@@ -78,6 +83,7 @@ Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, a
 
 ```bash
 npm run test:e2e     # round server, wallet sign-in, security checks, table rules: minimum, cancel, seats, sleep (no chain needed)
+npm run test:load    # 100 simulated players over several tables (a few minutes, no chain)
 npm run test:chain   # real devnet: a sealed and verified round, signed bets, refunds, payouts, a server killed mid-round, a live round cancelled for too few players (needs chain:setup and a little SOL)
 ```
 

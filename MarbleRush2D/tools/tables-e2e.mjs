@@ -117,6 +117,14 @@ const b = await Promise.all([[A, 0, 50], [B, 1, 25], [C, 2, 25], [D, 3, 10]].map
 check(b.every(x => x.code === 200), 'four players take the four seats');
 const fifth = await post('bet', { table: 'live', marble: 4, amount: 10 }, E.cookie);
 check(fifth.code === 409 && /full/.test(fifth.body.error), 'a fifth bettor is turned away: this table is full');
+check(fifth.body.full === true && fifth.body.move === 'live-2', 'and is told where to go: a second Live table opens');
+const sE2 = watch('live', E.cookie);                                  // "a Live table, wherever there is room"
+const over = await sE2.wait(e => e.type === 'round');
+check(over.data.table.id === 'live-2' && over.data.table.name === 'Live 2' && over.data.table.bots === 'none', 'a newcomer asking for Live is seated at Live 2: no house stakes there');
+const listing = (await (await fetch(`${base}/api/tables`)).json()).tables;
+const l1 = listing.find(t => t.id === 'live'), l2 = listing.find(t => t.id === 'live-2');
+check(l1.seats === 0 && l1.bettors === 4 && l2 && l2.seats === 4 && listing.find(t => t.id === 'practice').bots === 'house', 'the table list shows Live full and Live 2 open');
+check((await post('bet', { table: 'live-2', marble: 4, amount: 10 }, E.cookie)).code === 200, 'and the newcomer bets there');
 const go = await sA.wait(e => e.type === 'round' && e.data.id === r2.data.id && e.data.phase === 'countdown', 30000);
 check(go.data.bets.length === 4 && go.data.bets.every(x => x.human), 'the race starts with exactly the four players in the pool');
 const done = await sA.wait(e => e.type === 'settled' && e.data.id === r2.data.id, 90000);
@@ -127,11 +135,13 @@ const paidOut = finals.reduce((a, x) => a + x, 0) - 4 * 1000 + stake;
 check(paidOut <= stake * (1 - RAKE) + 1e-6, `players are paid at most the pool minus the rake (${paidOut.toFixed(2)} of ${(stake * (1 - RAKE)).toFixed(2)})`);
 
 // --- tables sleep when the room is empty ------------------------------------------------------------
-for (const s of [spec, sA, sB, sC, sD, sE]) s.close();
+for (const s of [spec, sA, sB, sC, sD, sE, sE2]) s.close();
 await sleep(1000);
 const before = opens();
 await sleep(50000);                                                  // the running rounds end; nobody is there to see another
 check(opens() === before, 'with nobody watching, no new round is sealed once the running ones end');
+check(!(await (await fetch(`${base}/api/tables`)).json()).tables.some(t => t.id === 'live-2'), 'and the overflow table closes once its room is empty');
+check(logs.some(l => l.line.includes('needed 3 players, had 1')) && await balanceOf(E) === 1000, 'the lone bettor at Live 2 was refunded when it fell short');
 const back = watch('practice');
 const woke = await back.wait(e => e.type === 'round');
 check(woke.data.id > r2.data.id && opens() === before + 1, `the next visitor wakes it (round ${woke.data.id})`);
