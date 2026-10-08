@@ -34,6 +34,12 @@ defs = ''.join(re.findall(r'<(?:radialGradient|linearGradient) id="\w+".*?</(?:r
 defs += ''.join(re.findall(r'<linearGradient id="g[tT][rR]".*?</linearGradient>', brand, re.S))
 sym = {k: grab(index, r'<symbol id="%s".*?</symbol>' % k) for k in ('g-d', 'g-cd')}
 sym['hyb-d'] = grab(brand, r'<symbol id="hyb-d".*?</symbol>')
+# Polish on the design: the glass leader is ~30% larger (26 -> 34) and the two inner marbles move out and up to make room.
+for a, b in [('x="15.8" y="17"', 'x="13.8" y="13"'), ('cx="20" cy="30"', 'cx="18" cy="26"'), ('cx="18.5" cy="28.5"', 'cx="16.5" cy="24.5"'),
+             ('x="39.8" y="17"', 'x="41.8" y="13"'), ('cx="44" cy="30"', 'cx="46" cy="26"'), ('cx="42.5" cy="28.5"', 'cx="44.5" cy="24.5"'),
+             ('x="26" y="22" width="12" height="28"', 'x="26" y="20" width="12" height="30"'), ('x="19" y="37" width="26" height="26"', 'x="15" y="29.5" width="34" height="34"')]:
+    assert a in sym['hyb-d'], a
+    sym['hyb-d'] = sym['hyb-d'].replace(a, b)
 sym['course'] = grab(brand, r'<symbol id="course".*?</symbol>')
 defs += ''.join(re.findall(r'<(?:radialGradient|linearGradient) id="\w+".*?</(?:radialGradient|linearGradient)>', sym['hyb-d'] + sym['course'], re.S))
 BG = vars_['bg']
