@@ -27,6 +27,8 @@ rm -f /etc/apt/sources.list.d/caddy-stable.list /usr/share/keyrings/caddy-stable
 if ! command -v caddy >/dev/null; then
   apt-get update -qq && apt-get install -y -qq caddy >/dev/null
 fi
+# the mail server that ships on the image is not needed here
+dpkg -s exim4-base >/dev/null 2>&1 && apt-get purge -y -qq 'exim4*' >/dev/null && apt-get autoremove -y -qq >/dev/null || true
 dpkg -s unattended-upgrades >/dev/null 2>&1 || apt-get install -y -qq unattended-upgrades >/dev/null
 
 if [ ! -f /swapfile ]; then
