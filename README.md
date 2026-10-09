@@ -69,13 +69,14 @@ Configuration (all optional):
 | `MR_TABLES` | path to a tables file, instead of `server/tables.json` |
 | `MR_CHAIN_DIR` | where the chain files live (default `server/data`) |
 | `MR_FEE_PAYER=player` | players pay their own fee (fallback if a wallet refuses server-paid fees) |
-| `MR_TRUST_PROXY=1` | behind a reverse proxy: take the client address from `X-Forwarded-For` |
-| `MR_TRUST_PROXY=fly` | behind Fly.io only: take it from `Fly-Client-IP` (a visitor could send that header anywhere else) |
+| `MR_TRUST_PROXY=1` | behind a reverse proxy: take the client address from `X-Forwarded-For` (only when the proxy is the only way in) |
+| `MR_HOST` | address to listen on (`127.0.0.1` when a proxy on the same machine is the only way in) |
+| `PORT` | the port (default 8090) |
 | `MR_REQUIRE_CHAIN=1` | refuse to start if the chain does not open (a public deploy must not fall back to demo money) |
 | `MR_SECURE=1` | always set the Secure cookie flag (also automatic on `X-Forwarded-Proto: https`) |
 | `MR_FAUCET_PER_IP`, `MR_FAUCET_PER_DAY` | faucet limits (default 3 per address, 150 per day) |
 
-Serve it over HTTPS in public: the session cookie and wallet signatures depend on it. Deploying to Fly.io: see [DEPLOY.md](DEPLOY.md).
+Serve it over HTTPS in public: the session cookie and wallet signatures depend on it. Deploying to Google Cloud: see [DEPLOY.md](DEPLOY.md).
 
 ## Changing the game while the server runs
 

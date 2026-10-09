@@ -662,12 +662,11 @@ setInterval(() => { for (const res of clients.keys()) res.write(': keep-alive\n\
 
 /* --------------------------------- HTTP --------------------------------- */
 
-/** The caller's address. Behind a proxy (MR_TRUST_PROXY=1) it is the last hop the proxy appended; otherwise the socket's. */
+/** The caller's address. Behind a proxy (MR_TRUST_PROXY=1) it is the last hop the proxy appended; otherwise the socket's.
+ *  Only set MR_TRUST_PROXY when the server can be reached ONLY through that proxy (bind it with MR_HOST=127.0.0.1):
+ *  anywhere else a client could send X-Forwarded-For itself. */
 const clientIp = (req) => {
-  // MR_TRUST_PROXY=fly: Fly.io's edge sets Fly-Client-IP itself and overwrites any copy a client sends. Only ever
-  // set this when the server is reachable ONLY through Fly: anywhere else a client could send that header.
-  if (process.env.MR_TRUST_PROXY === 'fly' && req.headers['fly-client-ip']) return String(req.headers['fly-client-ip']).trim();
-  if (process.env.MR_TRUST_PROXY === '1' || process.env.MR_TRUST_PROXY === 'fly') {
+  if (process.env.MR_TRUST_PROXY === '1') {
     const f = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
     if (f.length) return f[f.length - 1];
   }
@@ -972,7 +971,7 @@ export async function start(port = PORT) {
     const go = url.pathname.startsWith('/api/') ? api(req, res, url) : statics(req, res, url);
     go.catch(e => { console.error(e); if (!res.headersSent) json(res, 500, { error: 'server error' }); });
   });
-  await new Promise(ok => server.listen(port, ok));
+  await new Promise(ok => server.listen(port, process.env.MR_HOST || undefined, ok));
   console.log(`MarbleRush server on http://localhost:${port}/MarbleRush2D/`);
   return server;
 }

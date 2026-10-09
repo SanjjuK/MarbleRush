@@ -1,79 +1,93 @@
-# Deploying MarbleRush on Fly.io
+# Deploying MarbleRush on Google Cloud
 
-One small machine (1 shared CPU, 1 GB) and a 1 GB volume: about **$6 a month while it runs**, a few cents a month for the disk while it is stopped (check [fly.io/docs/pricing](https://fly.io/docs/pricing/) when you sign up). Nothing here is free except what you stop: see "Spend as little as possible".
+One small virtual machine (Compute Engine, e2-small: 2 vCPU shared, 2 GB) runs everything:
 
-The server is **one process with its state in memory**, so it must be exactly one machine. Never scale it past 1.
+- **Caddy** takes the HTTPS traffic (a free certificate that renews itself) and passes it on.
+- **The game server** (Node, run by systemd) listens only on `127.0.0.1`, so the only way in is through Caddy.
+- **`/var/lib/marblerush`** on the VM's disk holds payout jobs, sessions, stats and the round record.
+- The address is `https://IP-WITH-DASHES.sslip.io/MarbleRush2D/` (for example `34-29-110-88.sslip.io`): a free name that points at the VM's fixed IP, so no domain is needed. Set `MR_DOMAIN` to use your own.
 
-## What you need
+The server keeps its state **in one process**, so there must be exactly one VM. Never run two.
 
-- A Fly.io account with a card (Fly has no free plan for new accounts).
-- `flyctl`: `brew install flyctl`, then `fly auth login`.
-- This repo, with `MarbleRush2D/server/data/` holding your `authority.json` (the house key), `rpc-url.txt` (your RPC address) and `chain.json` (token addresses). Those stay on your computer: the image never contains the key or the RPC address.
+## Cost
 
-## First deploy
+The e2-small is about $13 a month plus about $2 for the disk and fixed IP. On a free-trial account the $300 credit pays for it, and the trial **stops instead of charging your card** unless you press "Upgrade" in the console. Check the Billing page for the credit left.
 
-Run these from the repo root.
+## First deploy (once)
+
+From the repo root, with `gcloud` signed in and the project chosen (`gcloud config set project ...`):
 
 ```bash
-# 1. Pick the app name (it must be unique on Fly) and keep this repo's fly.toml.
-fly launch --no-deploy --copy-config --name YOUR-APP-NAME
-
-# 2. The volume that holds payout jobs, sessions, stats and the round record. Same region as fly.toml.
-fly volumes create mr_data --size 1 --region iad
-
-# 3. The two secrets. Nothing is typed into the shell history: the values are read from your local files.
-{ printf 'MR_AUTHORITY_KEY=%s\n' "$(cat MarbleRush2D/server/data/authority.json)"; printf 'MR_RPC=%s\n' "$(head -n1 MarbleRush2D/server/data/rpc-url.txt)"; } | fly secrets import
-
-# 4. Build and start it.
-fly deploy
+gcloud services enable compute.googleapis.com
+gcloud compute addresses create marblerush-ip --region us-central1
+gcloud compute firewall-rules create marblerush-web --allow tcp:80,tcp:443 --target-tags marblerush
+gcloud compute instances create marblerush --zone us-central1-a --machine-type e2-small \
+  --image-family debian-12 --image-project debian-cloud --boot-disk-size 20GB \
+  --address marblerush-ip --tags marblerush --metadata enable-oslogin=TRUE
 ```
 
-Then open `https://YOUR-APP-NAME.fly.dev/MarbleRush2D/` and check:
+Commit your changes (only committed code is deployed), then:
 
-1. The page loads and shows **Practice** in the top bar. Sign in with Phantom; the faucet should give you RUSH.
-2. `fly logs` shows `[chain] devnet, tokens RUSH, USDC` and your house wallet balance. If it instead says `MR_REQUIRE_CHAIN=1 but the chain did not open`, step 3 did not take: `fly secrets list` should show `MR_AUTHORITY_KEY` and `MR_RPC`.
-3. `https://YOUR-APP-NAME.fly.dev/MarbleRush2D/stats.html` loads.
-4. Place a bet in Practice and watch it settle. That proves sealing, signing, payout and the volume.
+```bash
+deploy/deploy.sh --secrets
+```
 
-`fly.toml` sets `MR_TRUST_PROXY=fly`: the visitor's address is Fly's `Fly-Client-IP` header. **Never set that on a host that is not behind Fly**, where a visitor could send the header themselves. Without a correct client address, every visitor shares one sign-in limit (12 sign-ins a minute for the whole site).
+`--secrets` reads `authority.json` (the house key), `rpc-url.txt` and `chain.json` from `MarbleRush2D/server/data/` and copies them to the VM: the key and RPC address go into a root-only file (`/etc/marblerush/env`), never into the code, the log or this repo. The first run also installs Node and Caddy on the VM, which takes a few minutes.
+
+Then check `https://IP-WITH-DASHES.sslip.io/MarbleRush2D/`:
+
+1. The page loads and shows **Practice**. Sign in with Phantom; the faucet gives you RUSH.
+2. `deploy/vm.sh logs` shows `[chain] devnet, tokens RUSH, USDC` and the house wallet balance. If it says `MR_REQUIRE_CHAIN=1 but the chain did not open`, the key or RPC address did not arrive: run `deploy/deploy.sh --secrets` again.
+3. `/MarbleRush2D/stats.html` loads.
+4. Place a bet in Practice and watch it settle. That proves sealing, signing, payout and the disk.
+
+## Every later deploy
+
+```bash
+git commit ...
+deploy/deploy.sh
+```
+
+A deploy restarts the server. A round in progress is refunded when it comes back (stakes are never kept for an unfinished round), so deploy between rounds when you can. Each deploy is a new folder under `/opt/marblerush/releases`; the last three are kept. To roll back, point the `current` link at an older one and restart:
+
+```bash
+deploy/vm.sh 'sudo ln -sfn /opt/marblerush/releases/OLDER /opt/marblerush/current && sudo systemctl restart marblerush'
+```
+
+## Daily use
+
+```bash
+deploy/vm.sh status      # is it running
+deploy/vm.sh logs        # live server log (no keys, no RPC address)
+deploy/vm.sh 'COMMAND'   # any command on the VM
+```
+
+Stop the VM when nobody needs the link (the disk and IP still cost a little, the computer does not):
+
+```bash
+gcloud compute instances stop marblerush --zone us-central1-a
+gcloud compute instances start marblerush --zone us-central1-a
+```
+
+Stopping mid-round refunds that round on the next start. The IP is reserved, so the address stays the same.
+
+## Backups
+
+The round record and payout jobs matter if the server dies mid-round. A daily snapshot of the disk, kept for 3 days:
+
+```bash
+gcloud compute resource-policies create snapshot-schedule marblerush-daily --region us-central1 \
+  --max-retention-days 3 --daily-schedule --start-time 08:00
+gcloud compute disks add-resource-policies marblerush --zone us-central1-a --resource-policies marblerush-daily
+```
 
 ## The house wallet
 
 The server prints the house address at start (`authority 7enD...`). It pays network fees and token-account rent, and holds the vaults. Keep a few tenths of SOL in it: the faucet, new bets and round memos pause when it runs low, so payouts are the last thing to stop. Top up from a devnet faucet (see `SECURITY.md`).
 
-## Spend as little as possible
+## Security notes
 
-Fly bills by the second for a running machine. A stopped machine costs only its disk.
-
-```bash
-fly machines list                 # shows the machine id
-fly machine stop MACHINE_ID       # pause: the link goes down, the volume keeps your data
-fly machine start MACHINE_ID      # resume
-```
-
-`fly.toml` has `auto_start_machines = false`, so a stopped machine stays stopped until you start it. Stop it when nobody needs the live link, and start it before judging windows and before recording your demo video. Stopping in the middle of a round refunds that round's bets on the next start.
-
-## Updating
-
-```bash
-fly deploy
-```
-
-A deploy replaces the machine. A round in progress is refunded when the new machine starts (stakes are never kept for an unfinished round), so deploy between rounds when you can. `fly releases` lists versions; `fly deploy --image <previous image>` rolls back.
-
-## Useful commands
-
-```bash
-fly logs                          # live server log (no keys, no RPC address)
-fly status
-fly ssh console                   # a shell on the machine; the data is in /data
-fly ssh sftp get /data/stats.json # copy a file off the volume
-fly secrets list                  # names only
-```
-
-## Before you tell people the link
-
-- Pick the region nearest your players (`fly platform regions`); the volume and `primary_region` must match.
-- The link preview image (`og:image`) fills in the right address by itself.
-- **The image has not been built on the machine that wrote this guide** (no Docker there). The server, its files and its environment were tested from a folder laid out exactly like the image (`node MarbleRush2D/tools/deploy-check.mjs` and `npm run test:deploy`), but the first `fly deploy` is the first real build. If it fails, the error will name the Dockerfile line; send it to me.
+- Only ports 80 and 443 are open to the internet. The game server is not reachable directly, which is why `MR_TRUST_PROXY=1` (take the visitor's address from the proxy) is safe here. Do not set it on a server that is reachable without the proxy.
+- The server runs as its own user with a read-only file system except its data folder (see `deploy/marblerush.service`).
+- Logins to the VM use your Google account (OS Login); no password or key is shared.
 - This is a devnet prototype. Do not point it at mainnet. See `SECURITY.md`.

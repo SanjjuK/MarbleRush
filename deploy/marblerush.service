@@ -1,0 +1,29 @@
+[Unit]
+Description=MarbleRush game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=marblerush
+Group=marblerush
+WorkingDirectory=/opt/marblerush/current
+# MR_AUTHORITY_KEY and MR_RPC live here, readable by root only. Nothing secret is in this unit or in the code.
+EnvironmentFile=/etc/marblerush/env
+Environment=NODE_ENV=production PORT=8080 MR_HOST=127.0.0.1 MR_TRUST_PROXY=1 MR_SECURE=1 MR_REQUIRE_CHAIN=1
+Environment=MR_DATA=/var/lib/marblerush MR_CHAIN_DIR=/var/lib/marblerush
+ExecStart=/opt/node/bin/node MarbleRush2D/server/server.mjs
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+MemoryMax=1500M
+TimeoutStopSec=20
+# The process can write only to its data folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/marblerush
+
+[Install]
+WantedBy=multi-user.target

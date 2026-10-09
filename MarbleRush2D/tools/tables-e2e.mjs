@@ -23,7 +23,7 @@ process.env.MR_TABLES = join(dir, 'tables.json');
 process.env.MR_DATA = join(dir, 'data');
 process.env.MR_LOBBY = '4';
 process.env.MR_BLOCKS = '6';
-process.env.MR_TRUST_PROXY = 'fly';
+process.env.MR_TRUST_PROXY = '1';
 
 const logs = [];
 const realLog = console.log;
@@ -146,7 +146,7 @@ check(!!live && live.bettors === 4 && live.pool === stake && live.order.length =
 check(!JSON.stringify(st).includes(A.w.address) && !JSON.stringify(st).includes(B.w.address), 'stats: no wallet address appears anywhere in the public numbers');
 check((await fetch(`${base}/MarbleRush2D/stats.html`)).status === 200 && (await fetch(`${base}/MarbleRush2D/js/stats.js`)).status === 200, 'the stats page is served');
 
-// --- serving: compression, revalidation, a link-preview image that is an absolute address, the client address behind Fly ----
+// --- serving: compression, revalidation, a link-preview image that is an absolute address, the client address behind a proxy ----
 {
   const plain = await fetch(`${base}/MarbleRush2D/index.html`, { headers: { 'accept-encoding': 'identity' } });
   const text = await plain.text();
@@ -162,9 +162,9 @@ check((await fetch(`${base}/MarbleRush2D/stats.html`)).status === 200 && (await 
   const again = await fetch(`${base}/MarbleRush2D/js/main2d.js`, { headers: { 'if-none-match': raw.headers.get('etag') } });
   check(!!etag && again.status === 304, 'serving: a repeat visit is answered 304, with no body');
   check(text.includes(`og:image" content="http://localhost:${PORT}/MarbleRush2D/assets/og.png"`) && text.includes(`twitter:image" content="http://localhost:${PORT}/MarbleRush2D/assets/og.png"`), 'serving: the link-preview image is an absolute address');
-  // behind Fly the client address is Fly-Client-IP: 14 sign-in nonces from 14 different visitors must all be allowed,
+  // behind a proxy the client address is the last X-Forwarded-For hop: 14 sign-in nonces from 14 different visitors must all be allowed,
   // and the 13th from the same visitor must not
-  const visit = (ip) => fetch(`${base}/api/auth/nonce`, { method: 'POST', body: JSON.stringify({ address: newWallet().address }), headers: { 'fly-client-ip': ip } }).then(r => r.status);
+  const visit = (ip) => fetch(`${base}/api/auth/nonce`, { method: 'POST', body: JSON.stringify({ address: newWallet().address }), headers: { 'x-forwarded-for': ip } }).then(r => r.status);
   const many = await Promise.all(Array.from({ length: 14 }, (_, i) => visit(`198.51.100.${i + 1}`)));
   const same = []; for (let i = 0; i < 14; i++) same.push(await visit('203.0.113.9'));
   check(many.every(c => c === 200), 'proxy: 14 different visitors can all sign in (the limit is per visitor, not per proxy)');

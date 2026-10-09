@@ -1,0 +1,7 @@
+# Caddy terminates HTTPS (a free certificate, renewed by itself) and passes everything to the game server, which
+# only listens on 127.0.0.1. flush_interval -1 sends the live race stream (server-sent events) the moment it is written.
+__DOMAIN__ {
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+	}
+}

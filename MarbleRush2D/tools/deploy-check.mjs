@@ -1,10 +1,10 @@
-// deploy-check.mjs: start the server the way a host (Fly.io) will, and see that it comes up right.
+// deploy-check.mjs: start the server the way the cloud VM will, and see that it comes up right.
 //
 //   node MarbleRush2D/tools/deploy-check.mjs
 //
 // A real deploy has no key file: the house key and the RPC address arrive as environment variables, the data
-// folder is an empty volume plus the public chain.json, the port is PORT, and the host's proxy sits in front. This runs
-// the server with exactly that (no Docker needed), reading the secrets from the local data folder only to pass
+// folder is empty apart from the public chain.json, the port is PORT, and a reverse proxy sits in front. This runs
+// the server with exactly that, reading the secrets from the local data folder only to pass
 // them as environment variables, and never printing them. It uses devnet RPC reads only: nothing is spent.
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -22,7 +22,7 @@ const check = (ok, what) => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${what}`);
 const authority = readFileSync(join(SRC, 'authority.json'), 'utf8').trim();
 const rpc = existsSync(join(SRC, 'rpc-url.txt')) ? readFileSync(join(SRC, 'rpc-url.txt'), 'utf8').split('\n')[0].trim() : '';
 const volume = mkdtempSync(join(tmpdir(), 'mr-deploy-'));
-copyFileSync(join(SRC, 'chain.json'), join(volume, 'chain.json'));         // the one data file the image carries
+copyFileSync(join(SRC, 'chain.json'), join(volume, 'chain.json'));         // the one data file the server gets besides secrets
 
 function run(env, { stopWhen, ms = 40000 }) {
   return new Promise((ok) => {
@@ -37,15 +37,15 @@ function run(env, { stopWhen, ms = 40000 }) {
 }
 
 console.log('\n  the server as a host starts it\n');
-const common = { PORT: String(PORT), MR_DATA: volume, MR_CHAIN_DIR: volume, MR_TRUST_PROXY: 'fly', MR_SECURE: '1', MR_REQUIRE_CHAIN: '1', MR_AUTHORITY_KEY: authority, ...(rpc ? { MR_RPC: rpc } : {}) };
+const common = { PORT: String(PORT), MR_DATA: volume, MR_CHAIN_DIR: volume, MR_TRUST_PROXY: '1', MR_HOST: '127.0.0.1', MR_SECURE: '1', MR_REQUIRE_CHAIN: '1', MR_AUTHORITY_KEY: authority, ...(rpc ? { MR_RPC: rpc } : {}) };
 
 const up = await run(common, { stopWhen: /MarbleRush server on/ });
 check(up.how === 'ready', 'it starts and listens on PORT');
 if (up.how === 'ready') {
   const info = await (await fetch(`${base}/api/chain`)).json();
   check(info.cluster === 'devnet' && info.tokens.some(t => t.symbol === 'RUSH'), 'the chain is open from environment variables alone (devnet, RUSH)');
-  check(!existsSync(join(volume, 'authority.json')), 'no key file was written to the volume');
-  const page = await fetch(`${base}/MarbleRush2D/index.html`, { headers: { 'x-forwarded-proto': 'https', 'fly-client-ip': '203.0.113.5' } });
+  check(!existsSync(join(volume, 'authority.json')), 'no key file was written to the data folder');
+  const page = await fetch(`${base}/MarbleRush2D/index.html`, { headers: { 'x-forwarded-proto': 'https', 'x-forwarded-for': '203.0.113.5' } });
   check(page.headers.get('strict-transport-security') !== null && (await page.text()).includes(`content="http`), 'pages carry HSTS and the preview image is an absolute address');
   check((await fetch(`${base}/api/ping`)).status === 200, 'the health check answers');
   check(!up.log.includes(authority.slice(1, 40)) && (!rpc || !up.log.includes(rpc)), 'neither the key nor the RPC address appears in the log');
