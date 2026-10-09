@@ -787,6 +787,12 @@ async function api(req, res, url) {
     // Payouts and refunds that finished while this page was away: the last few rounds' status, so nothing stays "pending" on screen.
     for (const id of [round.id - 2, round.id - 1, round.id]) { const s = payoutSummary(id); if (s.status !== 'none') send(res, 'payout', { id, token: round.token, ...s }); }
     if (pid && round.phase === 'results') send(res, 'settled', settledFor(pid, round));
+    // A wallet that has just arrived (a new page, a reload, a reconnect) is somebody there now: the idle pause is for a tab
+    // nobody is looking at, so it ends, and a round waiting for a player starts.
+    if (pid && table.cfg.startOn === 'player') {
+      table.idleRounds = 0;
+      if (round.waiting && round.needBet) { round.needBet = false; broadcast('round', publicRound(round), table.id); }
+    }
     broadcast('pool', poolMsg(round), table.id);
     req.on('close', () => { clients.delete(res); if (table.round) broadcast('pool', poolMsg(table.round), table.id); });
     return;

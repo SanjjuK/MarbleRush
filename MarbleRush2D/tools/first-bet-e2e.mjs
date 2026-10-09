@@ -123,7 +123,11 @@ const idle = await signed.wait(e => e.type === 'round' && e.data.id > cd2.data.i
 check(idle.data.waiting === true && idle.data.needBet === true, 'after a round nobody bet in, the next round waits for a bet even with a wallet connected');
 await sleep(6000);
 check(!signed.evs.some(e => e.type === 'round' && e.data.id === idle.data.id && e.data.waiting === false), 'and it stays waiting (6 s, longer than the lobby) until someone bets');
-signed.close(); guest.close();
+// a wallet that arrives afresh (a new page, a reload) ends the pause: somebody is there now
+const fresh = watch('watch', cookie);
+const resumed = await fresh.wait(e => e.type === 'round' && e.data.id === idle.data.id && e.data.waiting === false, 8000);
+check(!!resumed && resumed.data.closesAt - resumed.data.opensAt === 4000, 'a wallet that arrives afresh starts the waiting round: the pause is only for a tab nobody is looking at');
+fresh.close(); signed.close(); guest.close();
 
 // --- a disabled table is listed, greyed out, and never opens --------------------------------------------------------------
 realLog('\n  a table that is closed (coming soon)\n');
