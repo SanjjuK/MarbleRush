@@ -1,6 +1,8 @@
 // live-smoke.mjs: one real round against a RUNNING server, the way a player does it, with a devnet test wallet.
 //
-//   node MarbleRush2D/tools/live-smoke.mjs https://34-29-110-88.sslip.io
+//   node MarbleRush2D/tools/live-smoke.mjs https://34-29-110-88.sslip.io [--fresh]
+//
+// With --fresh the wallet is brand new and has no SOL and no token account, like a judge's first visit.
 //
 // Signs in a test wallet (from data/test-wallets.json), waits for a Practice round, places a signed bet, watches the
 // race, checks the payout lands on chain and then runs verify-round.mjs on the reveal, which replays the race on THIS
@@ -19,7 +21,8 @@ let failures = 0;
 const check = (ok, what) => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${what}`); if (!ok) failures++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-const kp = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(await readFile(join(DATA, 'test-wallets.json'), 'utf8'))[0]));
+const FRESH = process.argv.includes('--fresh');       // a brand-new wallet, like a judge's: sign in, faucet, first bet
+const kp = FRESH ? Keypair.generate() : Keypair.fromSecretKey(Uint8Array.from(JSON.parse(await readFile(join(DATA, 'test-wallets.json'), 'utf8'))[0]));
 const PKCS8 = Buffer.from('302e020100300506032b657004220420', 'hex');
 const signMsg = (msg) => sign(null, Buffer.from(msg), createPrivateKey({ key: Buffer.concat([PKCS8, Buffer.from(kp.secretKey.subarray(0, 32))]), format: 'der', type: 'pkcs8' })).toString('base64');
 const address = kp.publicKey.toBase58();
@@ -36,6 +39,7 @@ const cookie = v.cookie.split(';')[0];
 check(/Secure/i.test(v.cookie) && /HttpOnly/i.test(v.cookie), 'the session cookie is Secure and HttpOnly');
 const bal = async () => (await call('balance?token=RUSH', null, cookie)).body.balance;
 let before = await bal();
+if (FRESH) check(before === 0, 'a brand-new wallet starts with nothing, and needs no SOL');
 if (!(before >= 20)) { const f = await call('faucet', { token: 'RUSH' }, cookie); check(f.code === 200, `faucet drop (${f.code})`); before = await bal(); }
 console.log(`   RUSH before: ${before}`);
 
