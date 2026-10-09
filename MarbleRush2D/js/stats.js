@@ -34,7 +34,7 @@ function draw(d) {
   $('liveNote').textContent = `${d.live.connections} watching · ${d.live.bettors} betting`;
   fill($('tables').tBodies[0], d.live.tables.map((t) => el('tr', {},
     cell(t.name), cell(t.token || '-'), cell(PHASE[t.phase] || t.phase), cell(fmt(t.bettors, 0), 'n'), cell(fmt(t.seats, 0), 'n'), cell(fmt(t.viewers, 0), 'n'),
-    cell(`${t.minPlayers ? `needs ${t.minPlayers} players` : 'always races'}, ${t.bots === 'house' ? 'house stakes' : 'players only'}`))), 7);
+    cell(`${t.minPlayers ? `needs ${t.minPlayers} players` : t.startOn === 'player' ? 'starts when a wallet joins' : t.startOn === 'bet' ? 'starts on the first bet' : 'always races'}, ${t.bots === 'house' ? 'house stakes' : 'players only'}`))), 7);
 
   fill($('recent').tBodies[0], d.recent.map((r) => {
     const names = (r.order || []).slice(0, 2).map(i => (MARBLE_DATA[i] || {}).name || `#${i + 1}`);
@@ -42,7 +42,7 @@ function draw(d) {
     const sigs = el('div', { class: 'sigs' });
     if (r.commit) sigs.append(link(d.cluster, r.commit, 'sealed'));
     if (r.reveal) sigs.append(link(d.cluster, r.reveal, 'revealed'));
-    if (r.payouts && r.payouts.length) sigs.append(link(d.cluster, r.payouts[0], `paid${r.payouts.length > 1 ? ` (+${r.payouts.length - 1})` : ''}`));
+    if (r.payouts && r.payouts.length) sigs.append(link(d.cluster, r.payouts[0], `${r.payoutKind === 'refund' ? 'refunded' : 'paid'}${r.payouts.length > 1 ? ` (+${r.payouts.length - 1})` : ''}`));
     const resultTd = cell(result);
     if (r.cancelled) resultTd.append(el('small', { text: r.cancelled }));
     return el('tr', {}, cell(String(r.id), 'n'), cell(r.name || r.table, ''), cell(fmt(r.bettors, 0), 'n'), cell(r.cancelled ? '-' : `${fmt(r.pool)} ${r.token === 'DEMO' ? '' : r.token}`, 'n'), resultTd, cell(sigs.childNodes.length ? sigs : (r.token === 'DEMO' ? 'demo money' : 'pending')));

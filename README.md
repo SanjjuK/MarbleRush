@@ -21,6 +21,7 @@ A **table** is one independent race loop with its own pool, set in `MarbleRush2D
 | Setting | Meaning |
 |---|---|
 | `startOn` | `timer` (default): the lobby clock starts with the round. `player`: the round waits, with no clock and no house stakes, until a signed-in wallet is watching the table (it need not bet). `bet`: it waits for the first bet |
+| `idleRounds` | on a `player` table: after this many rounds in a row with no bet (default 3) the table stops starting just because a wallet is there, and waits for a bet. An open tab left overnight does not keep sealing rounds |
 | `minPlayers` | wallets that must have bet for the race to run. Short of it the lobby waits one more round of the clock, then the round is **cancelled and every stake is returned** (a refund transaction, plus a `void` memo that reveals the seed). `0` = the race always runs |
 | `maxPlayers` | seats per round (default 20). When a round has no seat left the bettor is told which table to move to, and the next table of the family (`live-2`, `live-3`, ...) opens, up to `maxTables` (default 8). Overflow tables have no house stakes and close when their room is empty. Spectators are not limited |
 | `bots` | `house`: labelled house stakes so a lone visitor sees a live board, capped by `botBudget`. `none`: every unit in the pool is a player's |

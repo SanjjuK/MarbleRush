@@ -11,7 +11,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'mr-firstbet-e2e-'));
 writeFileSync(join(dir, 'tables.json'), JSON.stringify({ tables: [
   { id: 'practice', name: 'Practice', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'bet' },
-  { id: 'watch', name: 'Watch', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'player' },
+  { id: 'watch', name: 'Watch', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'player', idleRounds: 1 },
 ] }));
 process.env.MR_TABLES = join(dir, 'tables.json');
 process.env.MR_DATA = join(dir, 'data');
@@ -70,6 +70,13 @@ const bet = await post('bet', { table: 'practice', marble: 2, amount: 10 }, cook
 check(bet.code === 200, 'a player bets');
 const started = await wait(e => e.type === 'round' && e.data.id === 1 && e.data.waiting === false);
 check(started.data.closesAt - started.data.opensAt === 4000 && started.data.closesAt - Date.now() > 2500, 'the lobby clock starts from that bet (4 s on the clock)');
+// a page that reconnects (or reloads) mid-round is told it already has a bet, so nothing is lost or placed twice
+const again = await fetch(`${base}/api/events?table=practice`, { headers: { cookie } });
+const reader = again.body.getReader(); let text = '';
+while (!/event: hello[\s\S]*\n\n/.test(text)) { const { value, done } = await reader.read(); if (done) break; text += new TextDecoder().decode(value); }
+reader.cancel().catch(() => {});
+const hello = JSON.parse(/event: hello\ndata: (.*)/.exec(text)[1]);
+check(hello.mine && hello.mine.round === 1 && hello.mine.marble === 2 && hello.mine.amount === 10, 'reconnecting: the server tells the page about its own bet in this round');
 const cd = await wait(e => e.type === 'round' && e.data.id === 1 && e.data.phase === 'countdown', 20000);
 check(cd.at - t0 >= 3500, `the race starts a lobby later, not before (${((cd.at - t0) / 1000).toFixed(1)} s after the bet)`);
 const house = cd.data.bets.filter(b => !b.human);
@@ -110,6 +117,11 @@ const go = await guest.wait(e => e.type === 'round' && e.data.waiting === false,
 check(Date.now() - t1 < 3000 && go.data.closesAt - go.data.opensAt === 4000, 'a connected wallet joins the table: the lobby clock starts at once, with no bet placed');
 const cd2 = await guest.wait(e => e.type === 'round' && e.data.phase === 'countdown', 20000);
 check(cd2.data.bets.filter(b => !b.human).length >= 5 && !cd2.data.bets.some(b => b.human), 'it races with the house stakes, though the wallet never bet');
+// ...but a wallet that just sits there is not enough for ever: after idleRounds rounds with no bet, the next one waits for a bet
+const idle = await signed.wait(e => e.type === 'round' && e.data.id > cd2.data.id && e.data.phase === 'betting', 90000);
+check(idle.data.waiting === true && idle.data.needBet === true, 'after a round nobody bet in, the next round waits for a bet even with a wallet connected');
+await sleep(6000);
+check(!signed.evs.some(e => e.type === 'round' && e.data.id === idle.data.id && e.data.waiting === false), 'and it stays waiting (6 s, longer than the lobby) until someone bets');
 signed.close(); guest.close();
 
 realLog(`\n  ${failures ? failures + ' FAILED' : 'all passed'}\n`);

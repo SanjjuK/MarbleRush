@@ -16,12 +16,12 @@ A **table** is one race loop with its own pool (`MarbleRush2D/server/tables.json
 
 | Table | Needs | House stakes | Why |
 |---|---|---|---|
-| **Practice** (RUSH test token) | nobody: it always races | yes, labelled **HOUSE**, capped at 600 RUSH a round | a lone visitor, a judge, sees a live board |
+| **Practice** (RUSH test token) | nobody, but it starts only when a signed-in wallet is on the table | yes, labelled **HOUSE**, capped at 600 RUSH a round | a lone visitor, a judge, sees a live board |
 | **Live** (default or show token) | 3 wallets that have bet | none | every unit in the pool is a player's |
 
 - **Minimum players.** If a table is short when the 30 s lobby ends, it waits one more lobby ("Waiting for 1 more player"). Still short: the round is **cancelled and every stake is returned** (a refund transaction, plus a `void` memo that reveals the seed so a round that never raced cannot be quietly re-rolled).
 - **Maximum players.** 20 seats a round. When a round is full the bettor is told where to go and the next table opens (`live-2`, `live-3`, ... up to 8). Overflow tables have no house stakes and close when their room is empty. Newcomers are placed at the busiest table with a seat, so people are not scattered. Spectators are not limited.
-- **No empty rooms.** A table with nobody watching sleeps: no race is computed and no round is sealed on chain. The next visitor wakes it. A table nobody bets at backs off (3 s, 6 s ... 30 s) instead of opening a round a minute.
+- **No empty rooms.** A table with nobody watching sleeps: no race is computed and no round is sealed on chain. The next visitor wakes it, and the round then waits (no clock, no house stakes) until a signed-in wallet is on a Practice table, or until the first bet on a Live table (`startOn` in `tables.json`). When everyone leaves, the table stops again.
 - **A round never keeps a stake it did not race.** A bet that lands after betting closed, a round cancelled for too few players, and a server that dies mid-round are all refunded; payouts and refunds are crash-safe jobs written to disk with their signature before they are sent.
 
 ## Can the house lose money?

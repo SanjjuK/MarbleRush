@@ -141,7 +141,8 @@ function pushRecent(entry) {
 function viewRound(e) {
   const { chain: c, ...rest } = e;
   if (!c) return rest;
-  return { ...rest, commit: c.commit.sig || null, reveal: c.reveal.sig || null, payouts: payoutSummary(e.id).sigs };
+  const pay = payoutSummary(e.id);
+  return { ...rest, commit: c.commit.sig || null, reveal: c.reveal.sig || null, payouts: pay.sigs, payoutKind: pay.kind || null };
 }
 
 /** A raced round: count the players' money (house stakes are not players' money). */
@@ -231,7 +232,9 @@ const tableOfRound = (id) => [...tables.values()].find(t => t.round && t.round.i
 
 // startOn: 'timer' opens the lobby clock with the round. 'player' holds the round open, with no clock and no house bots, until a signed-in
 // wallet is watching the table; 'bet' holds it until the first bet.
-const TABLE_DEFAULTS = { startOn: 'timer', minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
+// idleRounds: after this many rounds in a row with no bet, a 'player' table stops starting on a wallet merely being there (an
+// AFK tab must not keep sealing rounds and staking house money all night) and waits for a bet instead.
+const TABLE_DEFAULTS = { startOn: 'timer', idleRounds: 3, minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
 const CANCEL_PAUSE_MS = 3000;
 /** data from server/tables.json (or MR_TABLES); one house-bot table when there is no file. */
 async function loadTables() {
@@ -436,6 +439,7 @@ async function runJobs() {
       await saveJobs();
       const sum = payoutSummary(job.round);
       broadcast('payout', { id: job.round, token: job.token, ...sum });
+      statsDirty = true;                                       // the public stats list this round's payout signature
     }
   } finally { jobsRunning = false; }
 }
@@ -454,6 +458,7 @@ async function anchor(r, kind, text) {
     console.error(`[round ${r.id}] ${kind} memo failed:`, scrub(e));
   }
   broadcast('chain', chainMsg(r), r.tableId);
+  statsDirty = true;                                         // the public stats list this round's commit and reveal signatures
 }
 
 /** Open a round: seeds, commitment, the race run in full, the bots queued. */
@@ -478,6 +483,7 @@ export async function openRound(table = defaultTable()) {
     phase: 'betting', opensAt: t, closesAt: t + T.lobby * 1000,
     raceAt: 0, resultAt: 0, nextAt: 0,
     extended: 0, cancelled: null, waiting: table.cfg.startOn === 'bet' || table.cfg.startOn === 'player',
+    needBet: table.cfg.startOn === 'bet' || (table.idleRounds || 0) >= table.cfg.idleRounds,
     pools: new Array(K).fill(0), backers: new Array(K).fill(0),
     bets: [], bots: table.cfg.bots === 'house' ? makeBots(makeRng(raceSeed + ':bots'), minBet / MIN_BET, table.cfg.botBudget * minBet / MIN_BET) : [], ready: new Set(), settled: null,
   };
@@ -493,7 +499,7 @@ export async function openRound(table = defaultTable()) {
 function publicRound(r) {
   const racing = r.phase === 'racing' || r.phase === 'results';
   return {
-    id: r.id, phase: r.phase === 'cancelled' ? 'betting' : r.phase, cancelled: r.cancelled, waiting: !!r.waiting, courseSeed: r.courseSeed, commitment: r.commitment, token: r.token, minBet: r.minBet,
+    id: r.id, phase: r.phase === 'cancelled' ? 'betting' : r.phase, cancelled: r.cancelled, waiting: !!r.waiting, needBet: !!r.needBet, courseSeed: r.courseSeed, commitment: r.commitment, token: r.token, minBet: r.minBet,
     lanes: r.lanes, layout: r.layout, blocks: T.blocks || null,
     opensAt: r.opensAt, closesAt: r.closesAt, raceAt: r.raceAt, resultAt: r.resultAt, nextAt: r.nextAt,
     raceSeed: racing ? r.raceSeed : null,
@@ -616,7 +622,7 @@ function tick(table) {
     // Waiting for the first bet: the clock stays full (bets stay open, the lobby ends nothing) until someone bets.
     if (r.waiting) {
       // 'player' tables start when a signed-in wallet is watching them, even before it bets; 'bet' tables wait for a bet.
-      if (table.cfg.startOn === 'player' && connectedPlayers(r.tableId).length) startLobby(r);
+      if (table.cfg.startOn === 'player' && !r.needBet && connectedPlayers(r.tableId).length) startLobby(r);
       else { r.opensAt = t; r.closesAt = t + T.lobby * 1000; return; }
     }
     let changed = false;
@@ -643,6 +649,7 @@ function tick(table) {
         anchor(r, 'reveal', `mr1|reveal|${r.id}|${r.token}|${r.raceSeed}|${r.result.finishOrder.join(',')}|${r.settled.totalPool}|${r.chain.commit.sig}`);
       }
       if (r.token && chain && r.payouts.length) queueJobs('payout', r.id, r.token, r.payouts);
+      table.idleRounds = realBets(r).length ? 0 : (table.idleRounds || 0) + 1;
       saveRoundState(r);
       r.phase = 'results';
       broadcast('round', publicRound(r), r.tableId);
@@ -770,11 +777,13 @@ async function api(req, res, url) {
     clients.set(res, { pid, table: table.id });
     const round = table.round;
     if (pid) {
-      const w = wallet(pid);
-      send(res, 'hello', { pid, name: w.name, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, table: table.id, family: table.family, history: w.history, stats: w.stats, now: now(), timing: T });
+      const w = wallet(pid), mine = round.bets.find(b => b.pid === pid);      // a page that reloads or reconnects must still know it has a bet
+      send(res, 'hello', { pid, name: w.name, mine: mine ? { round: round.id, marble: mine.marble, amount: mine.amount } : null, print: PRINT, code: CODE, balance: w.balance, onchain: !!round.token, table: table.id, family: table.family, history: w.history, stats: w.stats, now: now(), timing: T });
     } else send(res, 'hello', { guest: true, print: PRINT, code: CODE, balance: 0, history: [], stats: null, table: table.id, family: table.family, now: now(), timing: T });
     send(res, 'round', publicRound(round));
     send(res, 'chain', chainMsg(round));
+    // Payouts and refunds that finished while this page was away: the last few rounds' status, so nothing stays "pending" on screen.
+    for (const id of [round.id - 2, round.id - 1, round.id]) { const s = payoutSummary(id); if (s.status !== 'none') send(res, 'payout', { id, token: round.token, ...s }); }
     if (pid && round.phase === 'results') send(res, 'settled', settledFor(pid, round));
     broadcast('pool', poolMsg(round), table.id);
     req.on('close', () => { clients.delete(res); if (table.round) broadcast('pool', poolMsg(table.round), table.id); });

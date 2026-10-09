@@ -96,6 +96,7 @@ export class RemoteBetting {
       if (!d.onchain) this.balance = d.balance;
       this.history = d.history; this.stats = d.stats || this.stats;
       this.name = d.name;
+      this.mine = d.mine || null;       // our bet in the round now open, if any: set before the round event, applied there
       this.tableId = d.table || ''; this.family = d.family || '';
       if (this.family) { try { localStorage.setItem('marblerush.table', this.family); } catch { /* */ } }
       this.checkPrint(d.print, d.code);
@@ -135,7 +136,7 @@ export class RemoteBetting {
         else this.connect('', false);
       }, Math.min(5000, 800 * n));
     };
-    es.onopen = () => { this._retry = 0; this.on.status?.('live'); };
+    es.onopen = () => { this._retry = 0; this.on.status?.('live'); this.refreshBalance(); this.refreshTables(); };    // whatever moved while we were away
   }
 
   _wantTable() {
@@ -251,6 +252,9 @@ export class RemoteBetting {
       const st = this.stakes;
       this.stake = st.includes(this.stakePref) ? this.stakePref : st[Math.min(1, st.length - 1)];
       if (this.token) this.refreshBalance();
+    }
+    if (this.mine && this.mine.round === d.id && !this.placed) {      // a reload or a reconnect: the bet is already in
+      this.placed = true; this.selected = this.mine.marble; this.stake = this.mine.amount;
     }
     this.seed = d.raceSeed || '';
     this.commitment = d.commitment;
