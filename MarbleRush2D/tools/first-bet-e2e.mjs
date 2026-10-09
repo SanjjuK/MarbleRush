@@ -2,14 +2,17 @@
 //
 //   node MarbleRush2D/tools/first-bet-e2e.mjs
 //
-// A table with startOn "bet" and house stakes: its round opens when someone watches, but the lobby clock does not run
+// Two tables with house stakes. "practice" has startOn "bet" and "watch" has startOn "player" (below): its round opens when someone watches, but the lobby clock does not run
 // and no house stake is placed until a player bets. Then the clock starts, the house stakes come in and the race runs.
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'mr-firstbet-e2e-'));
-writeFileSync(join(dir, 'tables.json'), JSON.stringify({ tables: [{ id: 'practice', name: 'Practice', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'bet' }] }));
+writeFileSync(join(dir, 'tables.json'), JSON.stringify({ tables: [
+  { id: 'practice', name: 'Practice', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'bet' },
+  { id: 'watch', name: 'Watch', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'player' },
+] }));
 process.env.MR_TABLES = join(dir, 'tables.json');
 process.env.MR_DATA = join(dir, 'data');
 process.env.MR_LOBBY = '4'; process.env.MR_BLOCKS = '6';
@@ -73,6 +76,41 @@ const house = cd.data.bets.filter(b => !b.human);
 check(cd.data.bets.some(b => b.human) && house.length >= 5, `the house stakes joined once there was a player (${house.length} of them)`);
 const res = await wait(e => e.type === 'round' && e.data.id === 1 && e.data.phase === 'results', 120000);
 check(res.data.result && res.data.result.finishOrder.length === 5, 'and the round raced to a result');
+
+// --- startOn "player": a signed-in wallet watching the table starts it, even before it bets -------------------------------
+realLog('\n  a table that starts when a wallet joins\n');
+function watch(table, cookie) {
+  const evs = [], ws = [], ctrl = new AbortController();
+  (async () => {
+    const res = await fetch(`${base}/api/events?table=${table}`, { signal: ctrl.signal, headers: cookie ? { cookie } : {} });
+    const dec = new TextDecoder(); let buf = '';
+    for await (const chunk of res.body) {
+      buf += dec.decode(chunk, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = /^event: (.*)$/m.exec(block), data = /^data: (.*)$/m.exec(block);
+        if (!ev || !data) continue;
+        const e = { type: ev[1], data: JSON.parse(data[1]), at: Date.now() };
+        evs.push(e);
+        for (const w of ws.slice()) if (w.pred(e)) { ws.splice(ws.indexOf(w), 1); w.ok(e); }
+      }
+    }
+  })().catch(() => {});
+  return { evs, close: () => ctrl.abort(), wait: (pred, ms = 30000) => { const hit = evs.find(pred); return hit ? Promise.resolve(hit) : new Promise((ok, no) => { ws.push({ pred, ok }); setTimeout(() => no(new Error('timeout')), ms); }); } };
+}
+const guest = watch('watch');
+const g1 = await guest.wait(e => e.type === 'round');
+check(g1.data.waiting === true && g1.data.table.startOn === 'player', 'a guest wakes the table: it waits');
+await sleep(6000);
+check(!guest.evs.some(e => e.type === 'round' && e.data.waiting === false) && g1.data.bets.length === 0, 'a spectator who has not connected a wallet does not start it (6 s, longer than the lobby)');
+const signed = watch('watch', cookie);
+const t1 = Date.now();
+const go = await guest.wait(e => e.type === 'round' && e.data.waiting === false, 5000);
+check(Date.now() - t1 < 3000 && go.data.closesAt - go.data.opensAt === 4000, 'a connected wallet joins the table: the lobby clock starts at once, with no bet placed');
+const cd2 = await guest.wait(e => e.type === 'round' && e.data.phase === 'countdown', 20000);
+check(cd2.data.bets.filter(b => !b.human).length >= 5 && !cd2.data.bets.some(b => b.human), 'it races with the house stakes, though the wallet never bet');
+signed.close(); guest.close();
 
 realLog(`\n  ${failures ? failures + ' FAILED' : 'all passed'}\n`);
 server.close();

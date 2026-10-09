@@ -229,7 +229,8 @@ const tableFor = (id) => (id == null || id === '') ? defaultTable() : (tables.ge
 /** The table that is playing round `id` right now, if any. */
 const tableOfRound = (id) => [...tables.values()].find(t => t.round && t.round.id === id) || null;
 
-// startOn: 'timer' opens the lobby clock with the round; 'bet' holds the round open, with no clock and no house bots, until the first player bets.
+// startOn: 'timer' opens the lobby clock with the round. 'player' holds the round open, with no clock and no house bots, until a signed-in
+// wallet is watching the table; 'bet' holds it until the first bet.
 const TABLE_DEFAULTS = { startOn: 'timer', minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
 const CANCEL_PAUSE_MS = 3000;
 /** data from server/tables.json (or MR_TABLES); one house-bot table when there is no file. */
@@ -308,11 +309,14 @@ function addBet(r, bet) {
   r.bets.push(bet);
   r.pools[bet.marble] += bet.amount;
   r.backers[bet.marble] += 1;
-  if (bet.pid && r.waiting) {            // the first player's bet starts the lobby clock (and lets the house bots in)
-    r.waiting = false;
-    r.opensAt = now(); r.closesAt = r.opensAt + T.lobby * 1000;
-    broadcast('round', publicRound(r), r.tableId);
-  }
+  if (bet.pid && r.waiting) startLobby(r);       // a bet starts the lobby clock on any waiting table
+}
+
+/** A waiting round gets its lobby clock (and, on a table with house stakes, its house bots). */
+function startLobby(r) {
+  r.waiting = false;
+  r.opensAt = now(); r.closesAt = r.opensAt + T.lobby * 1000;
+  broadcast('round', publicRound(r), r.tableId);
 }
 
 /**
@@ -473,7 +477,7 @@ export async function openRound(table = defaultTable()) {
     lanes, result, sync, layout,
     phase: 'betting', opensAt: t, closesAt: t + T.lobby * 1000,
     raceAt: 0, resultAt: 0, nextAt: 0,
-    extended: 0, cancelled: null, waiting: table.cfg.startOn === 'bet',
+    extended: 0, cancelled: null, waiting: table.cfg.startOn === 'bet' || table.cfg.startOn === 'player',
     pools: new Array(K).fill(0), backers: new Array(K).fill(0),
     bets: [], bots: table.cfg.bots === 'house' ? makeBots(makeRng(raceSeed + ':bots'), minBet / MIN_BET, table.cfg.botBudget * minBet / MIN_BET) : [], ready: new Set(), settled: null,
   };
@@ -610,7 +614,11 @@ function tick(table) {
   if (!r) return;
   if (r.phase === 'betting') {
     // Waiting for the first bet: the clock stays full (bets stay open, the lobby ends nothing) until someone bets.
-    if (r.waiting) { r.opensAt = t; r.closesAt = t + T.lobby * 1000; return; }
+    if (r.waiting) {
+      // 'player' tables start when a signed-in wallet is watching them, even before it bets; 'bet' tables wait for a bet.
+      if (table.cfg.startOn === 'player' && connectedPlayers(r.tableId).length) startLobby(r);
+      else { r.opensAt = t; r.closesAt = t + T.lobby * 1000; return; }
+    }
     let changed = false;
     while (r.bots.length && r.opensAt + r.bots[0].at * 1000 <= t) {
       const b = r.bots.shift();

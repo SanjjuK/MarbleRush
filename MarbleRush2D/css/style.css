@@ -190,7 +190,7 @@ body.net.guest .wallet { display: none; }
 .wstate { display: flex; flex-direction: column; align-items: center; text-align: center; padding: var(--s2) 0 var(--s1); }
 .wstate .wnote { max-width: 32ch; }
 .wspin { position: relative; width: 64px; height: 64px; display: grid; place-items: center; margin-bottom: var(--s2); }
-.wspin .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: mr-spin 1s linear infinite; }
+.wspin .wring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: mr-spin 1s linear infinite; }
 .wtag { margin: var(--s-half) 0 var(--s1); font: 600 var(--fs-xs) var(--font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
 .wbang { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; margin-bottom: var(--s1); border: 2px solid var(--text-2); font: 700 var(--fs-xl) var(--font-data); color: var(--text-1); }
 .waddr { display: flex; align-items: center; gap: var(--s1); }
@@ -227,7 +227,7 @@ body.net.guest .wallet { display: none; }
 .walleterr { color: var(--text-1); font-size: var(--fs-sm); margin: var(--s1) 0 0; min-height: 0; }
 .walleterr:empty { display: none; }
 .walleterr a { color: var(--text-1); }
-@media (prefers-reduced-motion: reduce) { .wspin .ring, .faucet .spin { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .wspin .wring, .faucet .spin { animation: none; } }
 .iconbtn {
   width: var(--tap); height: var(--tap); border-radius: 50%; border: 1px solid var(--line-strong);
   background: var(--surface-2); font: 600 var(--fs-md) var(--font-ui); cursor: pointer; transition: background .15s; flex: none;

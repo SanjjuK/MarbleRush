@@ -656,6 +656,8 @@ function fmtClock(secs) {
 const RING_C = 2 * Math.PI * 80;
 let lobbyClosed = false;     // bets were closed at the last renderLobby (so the market re-renders once as they close)
 /** Seconds the betting window lasts: the server's own figure on a server round (it can differ from the local 30). */
+/** True while this table holds its round for a connected wallet (guests watch a still table). */
+const waitingForPlayer = () => !!(NET && netRound && netRound.waiting && netRound.table && netRound.table.startOn === 'player');
 const lobbyTotal = () => (NET && netRound && netRound.closesAt > netRound.opensAt ? (netRound.closesAt - netRound.opensAt) / 1000 : LOBBY_SECONDS);
 
 /**
@@ -725,14 +727,14 @@ function renderFeed() {
     const d = MARBLE_DATA[lastBet.marble];
     pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="stripe" style="--c:${d.hex}"></span><b>${esc(lastBet.handle)}</b>` +
       `<span class="what">${esc(d.name)} · ${fmtA(lastBet.amount)}</span>${lastBet.whale ? '<em class="whale">WHALE</em>' : ''}${isHouse(lastBet) ? '<em class="house">HOUSE</em>' : ''}<span class="more">FEED ↑</span>`;
-  } else pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="what">No bets yet · Be the first</span><span class="more">FEED ↑</span>`;
+  } else pk.innerHTML = `<i class="pulse" aria-hidden="true"></i><span class="what">${waitingForPlayer() ? 'Connect a wallet to start the round' : 'No bets yet · Be the first'}</span><span class="more">FEED ↑</span>`;
   ul.innerHTML = rows.map(b => {
     const d = MARBLE_DATA[b.marble];
     return `<li class="${b.mine ? 'mine' : ''}" style="--c:${d.hex}"><span class="stripe"></span>` +
       `<span class="who"><b>${esc(b.handle)}${b.auto ? ' · auto' : ''}</b><span>backed ${esc(d.name)} · ${mtag(b.marble)}</span></span>` +
       `${b.whale ? '<em class="whale">WHALE</em>' : ''}${isHouse(b) ? '<em class="house" title="A stake from the house, not a player">HOUSE</em>' : ''}` +
       `<span class="amt">${fmtA(b.amount)} <small>${esc(cur())}</small></span></li>`;
-  }).join('') || '<li class="empty"><b>No bets yet · Be the first</b><span>Bets appear here as they land</span></li>';
+  }).join('') || `<li class="empty"><b>${waitingForPlayer() ? 'Waiting for a player' : 'No bets yet · Be the first'}</b><span>${waitingForPlayer() ? 'The round starts when a wallet joins this table' : 'Bets appear here as they land'}</span></li>`;
 }
 
 function renderRecord() {
@@ -2019,7 +2021,7 @@ function walletConnectView() {
 /** W2: waiting on the wallet popup. The popup cannot be aborted from here; Cancel just stops listening. */
 function walletConnectingView(name, id) {
   walletShow(
-    `<div class="wstate" role="status"><div class="wspin"><i class="ring"></i>${glyph(name)}</div>` +
+    `<div class="wstate" role="status"><div class="wspin"><i class="wring"></i>${glyph(name)}</div>` +
     `<h2 class="wtitle" id="walletTitle">Connecting to ${name}</h2><b class="wtag">Waiting for approval</b>` +
     `<p class="wnote">Approve the connection in the ${name} window. MarbleRush only sees your address.</p></div>` +
     `<p class="walleterr" id="walletErr"></p><button type="button" id="walletCancel" class="wbtn ghost">Cancel</button>`, '#walletCancel');
@@ -2240,7 +2242,7 @@ function renderTables() {
   const list = betting.tables.length ? betting.tables : [];
   const rows = list.map((t) => {
     const taken = t.maxPlayers - t.seats, full = t.seats === 0;
-    const bits = [t.token || betting.currency, `${taken} of ${t.maxPlayers} seats`, t.minPlayers ? `needs ${t.minPlayers}` : t.startOn === 'bet' ? 'starts on the first bet' : 'always races', t.bots === 'house' ? 'house stakes' : 'players only'];
+    const bits = [t.token || betting.currency, `${taken} of ${t.maxPlayers} seats`, t.minPlayers ? `needs ${t.minPlayers}` : t.startOn === 'bet' ? 'starts on the first bet' : t.startOn === 'player' ? 'starts when a wallet joins' : 'always races', t.bots === 'house' ? 'house stakes' : 'players only'];
     return `<button type="button" class="walletopt" data-table="${esc(t.id)}"${t.id === betting.tableId ? ' aria-current="true"' : ''}>` +
       `<span class="wg" aria-hidden="true">${esc(t.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>` +
       `<span class="wn">${esc(t.name)}<small>${esc(bits.join(' · '))}</small></span>` +
