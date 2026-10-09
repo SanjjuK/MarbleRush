@@ -33,8 +33,14 @@ function ensure() {
   return ctx;
 }
 
+/** Send a voice to the master, panned left/right (-1..1) where the browser can. */
+function out_(node, pan) {
+  if (pan && ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)); node.connect(p); p.connect(master); }
+  else node.connect(master);
+}
+
 /** A short pitched voice: frequency glides f -> f2, with a fast attack and an exponential fade. */
-function tone({ f, f2 = f, type = 'sine', dur = 0.12, gain = 0.15, at = 0, attack = 0.005, lp = 0 }) {
+function tone({ f, f2 = f, type = 'sine', dur = 0.12, gain = 0.15, at = 0, attack = 0.005, lp = 0, pan = 0 }) {
   if (voices >= MAX_VOICES) return;
   const t = ctx.currentTime + at;
   const o = ctx.createOscillator(), g = ctx.createGain();
@@ -46,7 +52,7 @@ function tone({ f, f2 = f, type = 'sine', dur = 0.12, gain = 0.15, at = 0, attac
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   let out = g;
   if (lp) { const b = ctx.createBiquadFilter(); b.type = 'lowpass'; b.frequency.value = lp; o.connect(b); b.connect(g); } else o.connect(g);
-  g.connect(master);
+  out_(g, pan);
   voices++;
   o.onended = () => { voices--; try { g.disconnect(); } catch (_) { /* gone */ } };
   o.start(t); o.stop(t + dur + 0.05);
@@ -54,7 +60,7 @@ function tone({ f, f2 = f, type = 'sine', dur = 0.12, gain = 0.15, at = 0, attac
 }
 
 /** A burst of filtered noise. */
-function noise({ dur = 0.2, gain = 0.15, at = 0, type = 'lowpass', freq = 800, freq2 = 0, q = 0.8, attack = 0.004 }) {
+function noise({ dur = 0.2, gain = 0.15, at = 0, type = 'lowpass', freq = 800, freq2 = 0, q = 0.8, attack = 0.004, pan = 0 }) {
   if (voices >= MAX_VOICES) return;
   const t = ctx.currentTime + at;
   const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
@@ -65,7 +71,7 @@ function noise({ dur = 0.2, gain = 0.15, at = 0, type = 'lowpass', freq = 800, f
   g.gain.setValueAtTime(0.0001, t);
   g.gain.linearRampToValueAtTime(gain, t + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(f); f.connect(g); g.connect(master);
+  s.connect(f); f.connect(g); out_(g, pan);
   voices++;
   s.onended = () => { voices--; try { g.disconnect(); } catch (_) { /* gone */ } };
   s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
@@ -98,6 +104,17 @@ const SOUNDS = {
   error:   { min: 300,  run: () => { tone({ f: 220, type: 'square', dur: 0.12, gain: 0.05, lp: 900 }); tone({ f: 180, type: 'square', dur: 0.16, gain: 0.05, lp: 900, at: 0.1 }); } },
 };
 
+const recent = [];          // times of recent impact-type sounds, for the shared budget
+/** Per-kind minimum gap (ms) and a shared budget of `max` sounds per 100 ms, so a busy course stays a clatter, not a wall of noise. */
+function allow(kind, gap, max) {
+  const t = performance.now();
+  if (t - (last.get(kind) || -1e9) < gap) return false;
+  while (recent.length && t - recent[0] > 100) recent.shift();
+  if (recent.length >= max) return false;
+  last.set(kind, t); recent.push(t);
+  return true;
+}
+
 export const sfx = {
   get muted() { return muted; },
   get ready() { return !!ctx && ctx.state === 'running'; },
@@ -114,6 +131,38 @@ export const sfx = {
     if (t - (last.get(name) || -1e9) < s.min) return;
     last.set(name, t);
     try { s.run(arg); } catch (_) { /* a sound must never break the game */ }
+  },
+  /**
+   * A pinball bumper struck: every bumper has its own note (a pentatonic scale), so a field of them plays a tune.
+   * A pop bumper (the orange, springy ones) gets a low bonk with a metal ping. `gain` is 0..1, `pan` -1..1.
+   */
+  bumper(i, pop, pan = 0, gain = 1) {
+    if (muted || !ctx || ctx.state !== 'running' || document.hidden || !allow('bumper', 45, 10)) return;
+    try {
+      const scale = [523.25, 587.33, 659.25, 783.99, 880];
+      const f = scale[(i * 3) % 5] * ((i % 2) ? 1 : 2);
+      if (pop) {
+        tone({ f: 230, f2: 110, dur: 0.14, gain: 0.2 * gain, pan });
+        tone({ f: 1750, f2: 1500, type: 'square', dur: 0.05, gain: 0.05 * gain, pan, lp: 4000 });
+      } else {
+        tone({ f, type: 'triangle', dur: 0.2, gain: 0.11 * gain, pan });
+        tone({ f: f * 2, type: 'sine', dur: 0.12, gain: 0.05 * gain, pan });
+      }
+    } catch (_) { /* a sound must never break the game */ }
+  },
+  /** A marble knocked off a wall, a flipper, a spinner or another marble. `strength` is 0..1. */
+  impact(strength, pan = 0, marble = false, gain = 1) {
+    if (muted || !ctx || ctx.state !== 'running' || document.hidden || !allow('impact', 55, 8)) return;
+    try {
+      const s = Math.max(0, Math.min(1, strength)) * gain;
+      if (marble) {                                             // glass on glass
+        tone({ f: 2300 + s * 700, f2: 1900, dur: 0.05, gain: 0.03 + 0.07 * s, pan });
+        noise({ type: 'highpass', freq: 5000, dur: 0.03, gain: 0.02 + 0.03 * s, pan });
+      } else {                                                  // a marble on a wooden wall
+        tone({ f: 380 + s * 220, f2: 220, dur: 0.06, gain: 0.03 + 0.1 * s, pan });
+        noise({ type: 'bandpass', freq: 1400 + s * 1600, q: 1.2, dur: 0.04, gain: 0.02 + 0.07 * s, pan });
+      }
+    } catch (_) { /* a sound must never break the game */ }
   },
   /** A quiet rolling hum under the race: filtered noise, faded in while racing and out after. */
   bed(on) {

@@ -20,7 +20,7 @@ import { makeRng } from '../../js/rng.js';
 import { MARBLE_DATA, MARBLE_DARK } from '../../js/racers.js';
 import { BettingManager, fmtAmount, fmtOdds, MIN_BET, RAKE, CURRENCY, PLACE_SHARES } from '../../js/betting.js';
 import { buildTrack } from './track2d.js';
-import { Engine2D, SIM_DT, runRace2D, MAX_OUT } from './engine2d.js';
+import { Engine2D, SIM_DT, TRACK_W, runRace2D, MAX_OUT } from './engine2d.js';
 import { Renderer2D } from './render2d.js';
 import { detectServer, RemoteBetting } from './net2d.js';
 import { sfx } from './sound2d.js';
@@ -342,6 +342,7 @@ function enterCountdown() {
 
 function enterRacing() {
   phase = PHASE.RACING;
+  prevVel = null;
   finSeen = 0;
   if (!NET || !netRound || betting.now() - netRound.raceAt < 1500) sfx.play('go');      // not for someone who joins mid-race
   sfx.bed(true);
@@ -579,6 +580,37 @@ function setCam(mode) {
   myLast = '';
 }
 let camMode = 'auto';
+
+/**
+ * Pinball sounds from the race, read AFTER each engine tick and never fed back: a bumper the engine says was struck rings its own
+ * note, and any other sharp change in a marble's velocity (beyond gravity's pull) is a knock on a wall, flipper, spinner or marble.
+ */
+let prevVel = null;
+const KNOCK = 120, KNOCK_FULL = 700;       // px/s of velocity change: where a knock starts to sound, and where it is at full strength
+function soundImpacts() {
+  const E = engine, M = E.marbles;
+  if (!sfx.ready) { prevVel = null; return; }
+  const mine = betting.placed ? betting.selected : -1;
+  const near = new Set();                                           // marbles that already rang a bumper this tick
+  for (const bi of E.hits) {
+    const b = E.track.bumpers[bi];
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < M.length; i++) { const d = (M[i].x - b.x) ** 2 + (M[i].y - b.y) ** 2; if (d < bd) { bd = d; best = i; } }
+    if (best >= 0) near.add(best);
+    sfx.bumper(bi, b.rest > 1, ((b.x / TRACK_W) - 0.5) * 1.2, best === mine ? 1.4 : 0.8);
+  }
+  const g = 1500 * SIM_DT;                                          // what gravity alone adds in one tick
+  if (!prevVel || prevVel.length !== M.length) prevVel = M.map(m => [m.vx, m.vy]);
+  for (let i = 0; i < M.length; i++) {
+    const m = M[i], pv = prevVel[i];
+    const dv = Math.sqrt((m.vx - pv[0]) ** 2 + (m.vy - pv[1] - g) ** 2);
+    pv[0] = m.vx; pv[1] = m.vy;
+    if (dv < KNOCK || m.finished || m.out || near.has(i)) continue;
+    let other = false;                                              // another marble touching: glass on glass
+    for (let j = 0; j < M.length; j++) if (j !== i && !M[j].out && (M[j].x - m.x) ** 2 + (M[j].y - m.y) ** 2 < (m.r + M[j].r + 2) ** 2) { other = true; break; }
+    sfx.impact(Math.min(1, (dv - KNOCK) / (KNOCK_FULL - KNOCK)), ((m.x / TRACK_W) - 0.5) * 1.2, other, i === mine ? 1.4 : 0.8);
+  }
+}
 
 const SFX_EVENT = { out: 'ko', freeze: 'freeze', brake: 'brake', grab: 'grab', reorg: 'reorg' };
 function onRaceEvent(ev) {
@@ -1842,6 +1874,7 @@ function frame(now) {
       // Events are per TICK and a frame runs several, so read them here or
       // most of them are overwritten before the frame ever sees them.
       for (const ev of engine.events) onRaceEvent(ev);
+      soundImpacts();
       timeLoops();
       if (NET) noteSecond();
       accumulator -= SIM_DT;
