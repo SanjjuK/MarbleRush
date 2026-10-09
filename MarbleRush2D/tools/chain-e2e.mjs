@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { Connection } from '@solana/web3.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+process.env.MR_TABLES = join(HERE, 'timer-tables.json');
 process.env.MR_LOBBY = '5';
 process.env.MR_BLOCKS = '6';
 process.env.MR_DATA = mkdtempSync(join(tmpdir(), 'mr-chain-e2e-'));

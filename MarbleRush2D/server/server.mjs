@@ -229,7 +229,8 @@ const tableFor = (id) => (id == null || id === '') ? defaultTable() : (tables.ge
 /** The table that is playing round `id` right now, if any. */
 const tableOfRound = (id) => [...tables.values()].find(t => t.round && t.round.id === id) || null;
 
-const TABLE_DEFAULTS = { minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
+// startOn: 'timer' opens the lobby clock with the round; 'bet' holds the round open, with no clock and no house bots, until the first player bets.
+const TABLE_DEFAULTS = { startOn: 'timer', minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
 const CANCEL_PAUSE_MS = 3000;
 /** data from server/tables.json (or MR_TABLES); one house-bot table when there is no file. */
 async function loadTables() {
@@ -278,10 +279,10 @@ const fullReply = (res, table) => json(res, 409, { error: 'this table is full', 
 /** One line per table for the lobby screen and for the stats. */
 function tableSummary(t) {
   const r = t.round, asleep = t.idle || !r;
-  return { id: t.id, family: t.family, name: t.name, n: t.n, minPlayers: t.cfg.minPlayers, maxPlayers: t.cfg.maxPlayers, bots: t.cfg.bots,
+  return { id: t.id, family: t.family, name: t.name, n: t.n, minPlayers: t.cfg.minPlayers, maxPlayers: t.cfg.maxPlayers, bots: t.cfg.bots, startOn: t.cfg.startOn,
     token: r ? r.token : (t.cfg.token || null), phase: asleep ? 'asleep' : r.phase === 'cancelled' ? 'betting' : r.phase, round: r ? r.id : null,
     bettors: asleep ? 0 : realBets(r).length, seats: asleep ? t.cfg.maxPlayers : Math.max(0, t.cfg.maxPlayers - seatsTaken(r)),
-    viewers: viewers(t), closesAt: !asleep && r.phase === 'betting' ? r.closesAt : null };
+    viewers: viewers(t), waiting: !asleep && !!r.waiting, closesAt: !asleep && r.phase === 'betting' && !r.waiting ? r.closesAt : null };
 }
 const viewers = (table) => [...clients.values()].filter(c => c.table === table.id).length;
 const realBets = (r) => r.bets.filter(b => b.pid);
@@ -307,6 +308,11 @@ function addBet(r, bet) {
   r.bets.push(bet);
   r.pools[bet.marble] += bet.amount;
   r.backers[bet.marble] += 1;
+  if (bet.pid && r.waiting) {            // the first player's bet starts the lobby clock (and lets the house bots in)
+    r.waiting = false;
+    r.opensAt = now(); r.closesAt = r.opensAt + T.lobby * 1000;
+    broadcast('round', publicRound(r), r.tableId);
+  }
 }
 
 /**
@@ -467,7 +473,7 @@ export async function openRound(table = defaultTable()) {
     lanes, result, sync, layout,
     phase: 'betting', opensAt: t, closesAt: t + T.lobby * 1000,
     raceAt: 0, resultAt: 0, nextAt: 0,
-    extended: 0, cancelled: null,
+    extended: 0, cancelled: null, waiting: table.cfg.startOn === 'bet',
     pools: new Array(K).fill(0), backers: new Array(K).fill(0),
     bets: [], bots: table.cfg.bots === 'house' ? makeBots(makeRng(raceSeed + ':bots'), minBet / MIN_BET, table.cfg.botBudget * minBet / MIN_BET) : [], ready: new Set(), settled: null,
   };
@@ -483,7 +489,7 @@ export async function openRound(table = defaultTable()) {
 function publicRound(r) {
   const racing = r.phase === 'racing' || r.phase === 'results';
   return {
-    id: r.id, phase: r.phase === 'cancelled' ? 'betting' : r.phase, cancelled: r.cancelled, courseSeed: r.courseSeed, commitment: r.commitment, token: r.token, minBet: r.minBet,
+    id: r.id, phase: r.phase === 'cancelled' ? 'betting' : r.phase, cancelled: r.cancelled, waiting: !!r.waiting, courseSeed: r.courseSeed, commitment: r.commitment, token: r.token, minBet: r.minBet,
     lanes: r.lanes, layout: r.layout, blocks: T.blocks || null,
     opensAt: r.opensAt, closesAt: r.closesAt, raceAt: r.raceAt, resultAt: r.resultAt, nextAt: r.nextAt,
     raceSeed: racing ? r.raceSeed : null,
@@ -499,7 +505,7 @@ function publicRound(r) {
 /** What a browser needs to know about the table this round belongs to. */
 function tableInfo(r) {
   const c = r.cfg;
-  return { id: r.tableId, family: r.family, name: r.tableName, minPlayers: c.minPlayers, maxPlayers: c.maxPlayers, bots: c.bots };
+  return { id: r.tableId, family: r.family, name: r.tableName, minPlayers: c.minPlayers, maxPlayers: c.maxPlayers, bots: c.bots, startOn: c.startOn };
 }
 
 function connectedPlayers(tableId) {
@@ -603,6 +609,8 @@ function tick(table) {
   const r = table.round, t = now();
   if (!r) return;
   if (r.phase === 'betting') {
+    // Waiting for the first bet: the clock stays full (bets stay open, the lobby ends nothing) until someone bets.
+    if (r.waiting) { r.opensAt = t; r.closesAt = t + T.lobby * 1000; return; }
     let changed = false;
     while (r.bots.length && r.opensAt + r.bots[0].at * 1000 <= t) {
       const b = r.bots.shift();

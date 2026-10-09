@@ -22,6 +22,7 @@ import { Keypair, Transaction, SystemProgram } from '@solana/web3.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHAIN_DIR = process.env.MR_CHAIN_DIR || join(HERE, '..', 'server', 'data');
+process.env.MR_TABLES = join(HERE, 'timer-tables.json');
 process.env.MR_LOBBY = '26'; process.env.MR_BLOCKS = '6';
 process.env.MR_DATA = mkdtempSync(join(tmpdir(), 'mr-bets-e2e-'));
 process.env.MR_CHAIN_DIR = CHAIN_DIR;

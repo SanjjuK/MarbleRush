@@ -1,0 +1,2 @@
+{ "_": "For the chain tests: the old behaviour, a Practice round that opens its own lobby clock (the shipped tables.json waits for the first bet).",
+  "tables": [ { "id": "practice", "name": "Practice", "token": "RUSH", "minPlayers": 0, "maxPlayers": 20, "bots": "house", "botBudget": 600 } ] }

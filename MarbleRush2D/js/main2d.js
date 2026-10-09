@@ -179,6 +179,7 @@ function resetRoundUI() {
  */
 function onNetRound(r) {
   netRound = r;
+  lobbyShown = -1;                       // the label may change with no change of second (waiting for the first bet -> clock running)
   if (loadingNow) { loadingNow = false; document.body.classList.remove('loading'); renderTote(); renderFeed(); }
   if (!track || r.id !== betting.shownRound) newNetRound(r);
   if (r.phase === 'betting') {
@@ -670,7 +671,7 @@ function renderLobby() {
   lobbyShown = secs;
 
   $('lobbyClock').textContent = fmtClock(left);
-  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open' : tableNote && tableNote.kind === 'cancelled' ? 'Cancelled' : left <= 0 ? 'Closed' : 'Betting';
+  $('lobbyLabel').textContent = phase === PHASE.READY ? 'Gates open' : tableNote && tableNote.kind === 'cancelled' ? 'Cancelled' : left <= 0 ? 'Closed' : netRound && netRound.waiting ? 'Waiting' : 'Betting';
   // The topbar clock counts race seconds once there is a race. Until then it carries the same
   // countdown: on a phone the ring is not drawn and this is the copy you can see.
   $('raceClock').textContent = fmtClock(left);
@@ -1757,7 +1758,8 @@ function frame(now) {
   // slowly is on the same hard stop as one that bets slowly. On a server round
   // it is the server's clock, read, not counted.
   if (NET && netRound) {
-    lobby = Math.max(0, (netRound.closesAt - betting.now()) / 1000);
+    // A table that starts on the first bet holds the clock full until someone bets.
+    lobby = netRound.waiting && netRound.phase === 'betting' ? lobbyTotal() : Math.max(0, (netRound.closesAt - betting.now()) / 1000);
     if (phase === PHASE.COUNTDOWN) countdown = Math.max(0.01, (netRound.raceAt - betting.now()) / 1000);
   } else if (phase === PHASE.BETTING || phase === PHASE.READY) {
     lobby -= dt;
@@ -2217,11 +2219,11 @@ function renderTables() {
   const list = betting.tables.length ? betting.tables : [];
   const rows = list.map((t) => {
     const taken = t.maxPlayers - t.seats, full = t.seats === 0;
-    const bits = [t.token || betting.currency, `${taken} of ${t.maxPlayers} seats`, t.minPlayers ? `needs ${t.minPlayers}` : 'always races', t.bots === 'house' ? 'house stakes' : 'players only'];
+    const bits = [t.token || betting.currency, `${taken} of ${t.maxPlayers} seats`, t.minPlayers ? `needs ${t.minPlayers}` : t.startOn === 'bet' ? 'starts on the first bet' : 'always races', t.bots === 'house' ? 'house stakes' : 'players only'];
     return `<button type="button" class="walletopt" data-table="${esc(t.id)}"${t.id === betting.tableId ? ' aria-current="true"' : ''}>` +
       `<span class="wg" aria-hidden="true">${esc(t.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>` +
       `<span class="wn">${esc(t.name)}<small>${esc(bits.join(' · '))}</small></span>` +
-      `<em class="wtag2${full ? ' low' : ''}">${full ? 'FULL' : (t.id === betting.tableId ? 'YOU ARE HERE' : TABLE_PHASE[t.phase] || '')}</em></button>`;
+      `<em class="wtag2${full ? ' low' : ''}">${full ? 'FULL' : (t.id === betting.tableId ? 'YOU ARE HERE' : t.waiting ? 'WAITING' : TABLE_PHASE[t.phase] || '')}</em></button>`;
   }).join('') || '<p class="wnote dim">Loading tables…</p>';
   c.innerHTML = GRAB + `<h2 class="wtitle" id="tableTitle">Choose a table</h2>` +
     `<p class="wnote">Everyone at a table watches the same race and shares one pool. A table needs its minimum number of players: short of it, the round is cancelled and every stake is returned.</p>` +

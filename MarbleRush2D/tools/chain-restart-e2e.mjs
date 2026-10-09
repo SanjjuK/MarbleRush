@@ -30,7 +30,7 @@ const signMsg = (msg) => sign(null, Buffer.from(msg), createPrivateKey({ key: Bu
 let child = null;
 const startServer = () => new Promise((ok, no) => {
   child = spawn('node', [join(HERE, '..', 'server', 'server.mjs')], {
-    env: { ...process.env, MR_PORT: String(PORT), MR_DATA: DATA, MR_CHAIN_DIR: CHAIN_DIR, MR_LOBBY: '40', MR_BLOCKS: '6' }, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, MR_PORT: String(PORT), MR_DATA: DATA, MR_CHAIN_DIR: CHAIN_DIR, MR_LOBBY: '40', MR_BLOCKS: '6', MR_TABLES: join(HERE, 'timer-tables.json') }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
   const onData = (d) => { log += d; if (/MarbleRush server on/.test(log)) ok(() => log); };
