@@ -5,7 +5,7 @@
 // the browser replays it. A parimutuel pool settled from a race the client
 // simulated is a race the client can tamper with.
 //
-// Adapted from the reference engine in `3rd party code/2D/enginejs2D.ts`. What
+// Grown from the author's own first 2D prototype (`enginejs2D.ts`, made in Lovable). What
 // was taken, and what had to change:
 //
 // TAKEN, the collision model, which is the best thing about it.
@@ -41,7 +41,7 @@
 // FEEL, "real rolling plus reshufflers", per Sanjay.
 //   Wall contacts decompose velocity into normal and tangent: restitution on
 //   the normal so it rolls rather than bounces, friction on the tangent so it
-//   sheds speed the way a real marble does. The reference multiplied BOTH
+//   sheds speed the way a real marble does. The prototype multiplied BOTH
 //   components by 0.998 on contact, which is neither restitution nor friction
 //   and is why everything skated. Bumpers keep their high restitution, they
 //   are the arcade element and they are what shuffles the order.
@@ -201,7 +201,7 @@ function distSeg2(x, y, ax, ay, bx, by) {
  * tangential impulse is capped at `mu` times the normal impulse.
  *
  * That cap is the whole point, and getting it wrong stopped the field dead.
- * The first version, and the reference engine, scaled the tangential velocity
+ * The first version, and the prototype, scaled the tangential velocity
  * by a constant on every contact. But a marble resting on a ramp is in contact
  * on EVERY tick, so at 240 Hz a 0.16 shave compounds to nothing in a few
  * hundredths of a second: the marble freezes on a slope it should roll down,
