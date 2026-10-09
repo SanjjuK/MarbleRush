@@ -1,8 +1,47 @@
+<p align="center"><img src="MarbleRush2D/assets/og.png" alt="MarbleRush: back a marble, watch it drop, provably fair on Solana" width="720"></p>
+
 # MarbleRush
 
-Live parimutuel marble racing on Solana. Everyone watches the same race. You back a marble, stakes go into one pool, and the pool is paid out by finishing position. Every round is **sealed on-chain before betting opens and revealed after the race**, so nobody, including the operator, can pick the result after seeing the bets.
+**Live marble racing on Solana where the result is sealed on-chain before anyone can bet, and anyone can replay the race to check it.**
 
-> **Status: devnet prototype.** Test tokens only. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money.
+**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
+
+> **Status: devnet prototype.** Test tokens only, worthless by design. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money.
+
+## Try it in three minutes
+
+1. Install the **Phantom** (or Solflare / Backpack) wallet and switch it to **Devnet** (Settings, Developer Settings, Testnet Mode, Solana Devnet).
+2. Open the [live table](https://34-29-110-88.sslip.io/MarbleRush2D/), connect your wallet (a free message signature, no transaction), and take test **RUSH** from the wallet panel. You never need SOL: the server pays the network fee.
+3. The Practice round starts as soon as you are connected. Pick a marble, press **Bet**, sign once, and watch the race (about 3 to 4 minutes). Top two are paid.
+
+## Don't trust the race, replay it
+
+```bash
+git clone https://github.com/SanjjuK/MarbleRush && cd MarbleRush && npm install
+node MarbleRush2D/tools/verify-round.mjs 4wjQCCfWLgBDkVkzd7M2UKxGocYULyx1mCsDmwEzwiMQ67XoySBkC6VV2epViYbG6c8jopChJroVgKr8wU2px5aL
+```
+
+That is the reveal transaction of a real round raced on the hosted server. The tool reads the round's two Solana transactions, checks the revealed seed against the hash posted **before betting**, checks the order of events, and replays the whole race on your computer. Expected ending:
+
+```
+PASS  the revealed seed hashes to the committed hash
+PASS  the commit landed first: slot 509287452 before slot 509288716
+PASS  replaying the race gives the published order (Frost > Bullion > Royal > Blaze > Venom)
+PASS  the race code is identical to the version that raced
+verified
+```
+
+Every round on the [stats page](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) links to its commit, reveal and payout transactions on Solana Explorer.
+
+## What is real, and what is not
+
+| Real today | Not yet |
+|---|---|
+| Solana devnet transactions for commit, reveal, void, bets, payouts and refunds | Mainnet, real money, an audit |
+| Wallet sign-in; signed gasless bets (the server builds the transaction, the wallet signs it) | An on-chain escrow program: the vault is currently one server key |
+| A deterministic engine shared by the browser, the server and the verifier | A randomness source the operator cannot know in advance (see the [FAQ](FAQ.md)) |
+| Tables with minimum and maximum players, refunds, overflow, sleeping when empty | The Live (players-only) table is switched off for the submission; Practice has labelled, capped house stakes |
+| About 150 automated checks, four suites on real devnet, load runs of 100 players | Horizontal scaling: one server process |
 
 ## How a round works
 

@@ -66,10 +66,34 @@ og = flat(f'''<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="
 <span style="align-self:flex-start;height:32px;display:flex;align-items:center;padding:0 16px;border:1px solid var(--line-strong);border-radius:999px;font-family:var(--font-data);font-size:16px;font-weight:700;letter-spacing:.14em;color:var(--text-2)">DEVNET PROTOTYPE</span></div></div>''')
 
 CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-def shot(html, out, w, h):
+def shot(html, out, w, h, transparent=False):
     f = pathlib.Path(tempfile.mkdtemp()) / 'p.html'; f.write_text(html)
-    subprocess.run([CHROME, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1', '--virtual-time-budget=6000',
-                    f'--window-size={w},{h}', f'--screenshot={ROOT / out}', f'file://{f}'], check=True, capture_output=True)
+    dest = pathlib.Path(out) if pathlib.Path(out).is_absolute() else ROOT / out
+    extra = ['--default-background-color=00000000'] if transparent else []
+    subprocess.run([CHROME, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1', '--virtual-time-budget=6000', *extra,
+                    f'--window-size={w},{h}', f'--screenshot={dest}', f'file://{f}'], check=True, capture_output=True)
+
+# Extra media for the submission (video thumbnail, avatar, transparent lockup, deck backdrop), not part of the shipped page:
+#   python3 tools/brand/build-assets.py --media DIR      writes into DIR and leaves assets/ alone
+if '--media' in sys.argv:
+    out = pathlib.Path(sys.argv[sys.argv.index('--media') + 1]).resolve(); out.mkdir(parents=True, exist_ok=True)
+    (ROOT / 'assets/icon-180.svg').unlink(missing_ok=True)
+    thumb = (og.replace('width:1200px;height:630px', 'width:1280px;height:720px')
+               .replace('Back a marble. Watch it drop.', "Don&rsquo;t trust the race. Replay it.")
+               .replace('Live marble racing. <span style="color:var(--text-1);font-weight:600">Provably fair on Solana.</span>',
+                        'Sealed on Solana <span style="color:var(--text-1);font-weight:600">before anyone bets.</span>')
+               .replace('font-size:88px', 'font-size:84px'))
+    shot(thumb, out / 'thumbnail-1280x720.png', 1280, 720)
+    head = '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">'
+    css = '<style>:root{' + ''.join(f'--{k}:{v};' for k, v in vars_.items()) + '}html,body{margin:0;background:transparent}</style>'
+    hid = f'<svg width="0" height="0" style="position:absolute"><defs>{defs}{sym["hyb-d"]}{sym["course"]}</defs></svg>'
+    word = lambda sz: f'<span style="font-family:var(--font-data);font-size:{sz}px;font-weight:600;line-height:1;letter-spacing:-.01em;white-space:nowrap;color:var(--text-1)">Marble<span style="font-weight:700;color:var(--celebrate)">Rush</span></span>'
+    lock = flat(head + css + hid + f'<div style="display:inline-flex;align-items:center;gap:40px;padding:60px 80px"><svg width="260" height="260"><use href="#hyb-d" width="260" height="260"/></svg>{word(230)}</div>')
+    shot(lock, out / 'logo-lockup-transparent.png', 1500, 380, transparent=True)
+    shot(flat(head + css + hid + f'<div style="width:512px;height:512px;background:var(--bg);display:grid;place-items:center"><svg width="400" height="400"><use href="#hyb-d" width="400" height="400"/></svg></div>'), out / 'logo-mark-512.png', 512, 512)
+    bg = flat(head + css.replace('background:transparent', 'background:var(--bg)') + hid + '<div style="position:relative;width:1920px;height:1080px;overflow:hidden;background:var(--bg)"><div style="position:absolute;inset:0;background:radial-gradient(45% 70% at 80% 55%,var(--celebrate-soft),transparent 70%)"></div><svg viewBox="0 0 240 900" preserveAspectRatio="xMidYMid slice" style="position:absolute;right:140px;top:0;width:480px;height:1080px;opacity:.55"><use href="#course" width="240" height="900"/></svg></div>')
+    shot(bg, out / 'deck-backdrop-1920x1080.png', 1920, 1080)
+    print('media written to', out); sys.exit(0)
 
 page = lambda svg, w, h: f'<!doctype html><style>html,body{{margin:0;background:transparent}}svg{{display:block}}</style>{svg}'
 shot(og, 'assets/og.png', 1200, 630)
