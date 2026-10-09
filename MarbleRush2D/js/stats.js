@@ -33,7 +33,7 @@ function draw(d) {
 
   $('liveNote').textContent = `${d.live.connections} watching · ${d.live.bettors} betting`;
   fill($('tables').tBodies[0], d.live.tables.map((t) => el('tr', {},
-    cell(t.name), cell(t.token || '-'), cell(PHASE[t.phase] || t.phase), cell(fmt(t.bettors, 0), 'n'), cell(fmt(t.seats, 0), 'n'), cell(fmt(t.viewers, 0), 'n'),
+    cell(t.name), cell(t.token || '-'), cell(t.disabled ? 'Coming soon' : PHASE[t.phase] || t.phase), cell(fmt(t.bettors, 0), 'n'), cell(fmt(t.seats, 0), 'n'), cell(fmt(t.viewers, 0), 'n'),
     cell(`${t.minPlayers ? `needs ${t.minPlayers} players` : t.startOn === 'player' ? 'starts when a wallet joins' : t.startOn === 'bet' ? 'starts on the first bet' : 'always races'}, ${t.bots === 'house' ? 'house stakes' : 'players only'}`))), 7);
 
   fill($('recent').tBodies[0], d.recent.map((r) => {

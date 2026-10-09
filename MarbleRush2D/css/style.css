@@ -172,6 +172,8 @@ body.net.guest .wallet { display: none; }
 }
 .walletopt:hover { background: var(--surface-3); }
 .walletopt:disabled { opacity: .6; cursor: default; }
+.walletopt.off { opacity: .45; cursor: not-allowed; filter: grayscale(1); }
+.htile.off { opacity: .45; filter: grayscale(1); }
 .walletopt .wn { flex: 1; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; text-align: left; }
 .walletopt small { color: var(--text-3); font: 500 var(--fs-sm) var(--font-ui); }
 .walletopt .chev { flex: none; fill: none; stroke: var(--text-2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

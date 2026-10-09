@@ -1,5 +1,5 @@
 {
-  "_": "A table is one independent race loop with its own pool. minPlayers counts wallets that have bet (0 = the race always runs). bots 'house' adds labelled house stakes, capped by botBudget (token units); 'none' means every unit in the pool is a player's. token omitted = the default token, or the show on data/schedule.json. startOn: 'timer' (default) starts the lobby clock with the round; 'player' holds the round (no clock, no house stakes) until a signed-in wallet is on the table, even before it bets; 'bet' holds it until the first bet.",
+  "_": "A table is one independent race loop with its own pool. minPlayers counts wallets that have bet (0 = the race always runs). bots 'house' adds labelled house stakes, capped by botBudget (token units); 'none' means every unit in the pool is a player's. token omitted = the default token, or the show on data/schedule.json. startOn: 'timer' (default) starts the lobby clock with the round; 'player' holds the round (no clock, no house stakes) until a signed-in wallet is on the table, even before it bets; 'bet' holds it until the first bet. disabled: true lists a table but never opens it (the page shows it greyed out as coming soon).",
   "tables": [
     {
       "id": "practice",
@@ -17,7 +17,8 @@
       "minPlayers": 3,
       "maxPlayers": 20,
       "bots": "none",
-      "startOn": "bet"
+      "startOn": "bet",
+      "disabled": true
     }
   ]
 }

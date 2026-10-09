@@ -11,6 +11,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'mr-firstbet-e2e-'));
 writeFileSync(join(dir, 'tables.json'), JSON.stringify({ tables: [
   { id: 'practice', name: 'Practice', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'bet' },
+  { id: 'closed', name: 'Closed', minPlayers: 3, maxPlayers: 20, bots: 'none', disabled: true },
   { id: 'watch', name: 'Watch', minPlayers: 0, maxPlayers: 20, bots: 'house', botBudget: 100, startOn: 'player', idleRounds: 1 },
 ] }));
 process.env.MR_TABLES = join(dir, 'tables.json');
@@ -123,6 +124,21 @@ check(idle.data.waiting === true && idle.data.needBet === true, 'after a round n
 await sleep(6000);
 check(!signed.evs.some(e => e.type === 'round' && e.data.id === idle.data.id && e.data.waiting === false), 'and it stays waiting (6 s, longer than the lobby) until someone bets');
 signed.close(); guest.close();
+
+// --- a disabled table is listed, greyed out, and never opens --------------------------------------------------------------
+realLog('\n  a table that is closed (coming soon)\n');
+const opensBefore = opens();
+const all = (await (await fetch(`${base}/api/tables`)).json()).tables;
+const closed = all.find(t => t.id === 'closed');
+check(closed && closed.disabled === true && closed.phase === 'asleep', 'it is in the table list, marked disabled');
+const viaClosed = await fetch(`${base}/api/events?table=closed&pin=1`);
+const rd = viaClosed.body.getReader(); let seen = '';
+while (!/event: hello[\s\S]*\n\n/.test(seen)) { const { value, done } = await rd.read(); if (done) break; seen += new TextDecoder().decode(value); }
+rd.cancel().catch(() => {});
+check(JSON.parse(/event: hello\ndata: (.*)/.exec(seen)[1]).table !== 'closed', 'asking for it, even pinned, seats you at an open table instead');
+check(!logs.some(l => /table closed|closed.*open/.test(l)) && (await (await fetch(`${base}/api/tables`)).json()).tables.find(t => t.id === 'closed').phase === 'asleep' && opens() >= opensBefore, 'no round was ever opened on it');
+const noBet = await post('bet', { table: 'closed', marble: 1, amount: 10 }, cookie);
+check(noBet.code >= 400, `and a bet on it is refused (${noBet.code})`);
 
 realLog(`\n  ${failures ? failures + ' FAILED' : 'all passed'}\n`);
 server.close();

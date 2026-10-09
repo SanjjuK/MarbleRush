@@ -54,7 +54,7 @@ const PORT = +(process.env.MR_PORT || process.env.PORT || 8090);          // POR
 
 /** Round timing, seconds. */
 export const T = {
-  lobby: +(process.env.MR_LOBBY || 30),     // betting open
+  lobby: +(process.env.MR_LOBBY || 60),     // betting open
   countdown: 3,
   runout: 2.5,                               // after the last marble, before results
   results: 9,                                // results on screen before the next round
@@ -224,7 +224,8 @@ const tables = new Map();         // id -> { id, name, round, opening }
 let roundNo = 0;
 const clients = new Map();        // res -> { pid, table }, pid null for a spectator
 
-const defaultTable = () => tables.values().next().value;
+/** The table a visitor lands on: the first one that is open (a table with `disabled: true` is listed but never opens). */
+const defaultTable = () => [...tables.values()].find(t => !t.cfg.disabled) || tables.values().next().value;
 /** The table a request means: ?table= / body.table, else the first one. null when it names none. */
 const tableFor = (id) => (id == null || id === '') ? defaultTable() : (tables.get(String(id)) || null);
 /** The table that is playing round `id` right now, if any. */
@@ -234,7 +235,7 @@ const tableOfRound = (id) => [...tables.values()].find(t => t.round && t.round.i
 // wallet is watching the table; 'bet' holds it until the first bet.
 // idleRounds: after this many rounds in a row with no bet, a 'player' table stops starting on a wallet merely being there (an
 // AFK tab must not keep sealing rounds and staking house money all night) and waits for a bet instead.
-const TABLE_DEFAULTS = { startOn: 'timer', idleRounds: 3, minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
+const TABLE_DEFAULTS = { disabled: false, startOn: 'timer', idleRounds: 3, minPlayers: 0, maxPlayers: 20, bots: 'none', botBudget: 600, lobbyExtends: 1, maxTables: 8 };
 const CANCEL_PAUSE_MS = 3000;
 /** data from server/tables.json (or MR_TABLES); one house-bot table when there is no file. */
 async function loadTables() {
@@ -283,7 +284,7 @@ const fullReply = (res, table) => json(res, 409, { error: 'this table is full', 
 /** One line per table for the lobby screen and for the stats. */
 function tableSummary(t) {
   const r = t.round, asleep = t.idle || !r;
-  return { id: t.id, family: t.family, name: t.name, n: t.n, minPlayers: t.cfg.minPlayers, maxPlayers: t.cfg.maxPlayers, bots: t.cfg.bots, startOn: t.cfg.startOn,
+  return { id: t.id, family: t.family, name: t.name, n: t.n, minPlayers: t.cfg.minPlayers, maxPlayers: t.cfg.maxPlayers, bots: t.cfg.bots, startOn: t.cfg.startOn, disabled: !!t.cfg.disabled,
     token: r ? r.token : (t.cfg.token || null), phase: asleep ? 'asleep' : r.phase === 'cancelled' ? 'betting' : r.phase, round: r ? r.id : null,
     bettors: asleep ? 0 : realBets(r).length, seats: asleep ? t.cfg.maxPlayers : Math.max(0, t.cfg.maxPlayers - seatsTaken(r)),
     viewers: viewers(t), waiting: !asleep && !!r.waiting, closesAt: !asleep && r.phase === 'betting' && !r.waiting ? r.closesAt : null };
@@ -768,8 +769,9 @@ async function api(req, res, url) {
     if (clients.size >= SSE_TOTAL || (sseByIp.get(ip) || 0) >= SSE_PER_IP) return json(res, 429, { error: 'too many open connections' });
     // ?table=live means "a Live table, wherever there is room"; with &pin=1 it means exactly that one.
     const want = url.searchParams.get('table') || defaultTable().family;
-    const table = url.searchParams.get('pin') ? tables.get(want) : (instances(want).length ? pickInstance(want) : tables.get(want));
+    let table = url.searchParams.get('pin') ? tables.get(want) : (instances(want).length ? pickInstance(want) : tables.get(want));
     if (!table) return json(res, 404, { error: 'no such table' });
+    if (table.cfg.disabled) table = defaultTable();          // a closed table is never opened: whoever asks for it lands on the open one
     sseByIp.set(ip, (sseByIp.get(ip) || 0) + 1);
     res.on('close', () => { const n = (sseByIp.get(ip) || 1) - 1; if (n) sseByIp.set(ip, n); else sseByIp.delete(ip); });
     if (table.idle || !table.round) { await openTable(table); if (res.destroyed || !table.round) return; }   // wake a sleeping table

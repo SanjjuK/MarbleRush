@@ -62,7 +62,7 @@ const MAX_RACE_SECONDS = 480;
  * rest, which matters more here than it looks: the pool is only fair while
  * everybody is betting into the same clock.
  */
-const LOBBY_SECONDS = 30;
+const LOBBY_SECONDS = 60;
 
 // Local rounds by default. When the page is served by the round server,
 // `betting` is swapped for a live mirror of the server's pool (see net2d.js)
@@ -2275,6 +2275,11 @@ function renderTables() {
   const list = betting.tables.length ? betting.tables : [];
   const rows = list.map((t) => {
     const taken = t.maxPlayers - t.seats, full = t.seats === 0;
+    if (t.disabled) {                                    // listed, not open: greyed out, cannot be chosen
+      return `<button type="button" class="walletopt off" disabled aria-disabled="true">` +
+        `<span class="wg" aria-hidden="true">${esc(t.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>` +
+        `<span class="wn">${esc(t.name)}<small>Players only, ${t.minPlayers} needed to race</small></span><em class="wtag2">COMING SOON</em></button>`;
+    }
     const bits = [t.token || betting.currency, `${taken} of ${t.maxPlayers} seats`, t.minPlayers ? `needs ${t.minPlayers}` : t.startOn === 'bet' ? 'starts on the first bet' : t.startOn === 'player' ? 'starts when a wallet joins' : 'always races', t.bots === 'house' ? 'house stakes' : 'players only'];
     return `<button type="button" class="walletopt" data-table="${esc(t.id)}"${t.id === betting.tableId ? ' aria-current="true"' : ''}>` +
       `<span class="wg" aria-hidden="true">${esc(t.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase())}</span>` +
@@ -2393,10 +2398,10 @@ const HELP_SEEN = 'mr.onboarded';
 let helpI = 0;
 const helpArt = {
   bars: () => `<div class="hart bars" aria-hidden="true">${[['blz', 62], ['frs', 88], ['vnm', 48], ['roy', 30], ['bul', 72]].map(([k, w], i) => `<div class="hbar"><b>${i + 1}</b><i style="width:${w}%;--c:var(--m-${k})"></i></div>`).join('')}</div>`,
-  clock: () => `<div class="hart clock" aria-hidden="true"><div class="hring"><b>0:30</b></div><span class="hchip">One bet · locked once sent</span></div>`,
+  clock: () => `<div class="hart clock" aria-hidden="true"><div class="hring"><b>1:00</b></div><span class="hchip">One bet · locked once sent</span></div>`,
   tiles: () => `<div class="hart" aria-hidden="true"><div class="htiles"><div class="htile">Opener</div><div class="htile">Run-in</div><div class="htile">Mempool <em>OUT</em></div></div></div>`,
   pool: () => `<div class="hart" aria-hidden="true"><div class="hpool"><div class="strip"><span class="rk">5%</span><span class="p1">1ST 75%</span><span class="p2">2ND 25%</span></div><div class="cap"><span>Rake</span><span>Backers of first</span><span>Second</span></div></div></div>`,
-  tables: () => `<div class="hart" aria-hidden="true"><div class="htiles"><div class="htile">Practice<em>STARTS WHEN YOU JOIN</em></div><div class="htile">Live<em>NEEDS ${tableMin()} PLAYERS</em></div><div class="htile">Live 2<em>OPENS WHEN FULL</em></div></div></div>`,
+  tables: () => `<div class="hart" aria-hidden="true"><div class="htiles"><div class="htile">Practice<em>STARTS WHEN YOU JOIN</em></div><div class="htile off">Live<em>COMING SOON</em></div></div></div>`,
   flow: () => `<div class="hart" aria-hidden="true"><div class="hflow"><span>SEAL</span><i></i><span>RACE</span><i></i><span>REVEAL</span></div></div>`,
 };
 /** The smallest field a table with a minimum asks for (Live's), from the server's table list; 3 until it has been read. */
@@ -2408,8 +2413,8 @@ function poolExample() {
 }
 const HELP_ALL = [
   { t: 'Back a marble', art: 'bars', p: () => 'Pick one of five. The odds move like a tote board as money arrives, so the price you see is live until the clock ends.' },
-  { t: 'Beat the clock', art: 'clock', p: () => 'Betting runs on a 30 second clock and closes 4 seconds before the gates open. One bet per round: change your marble and stake until you press Bet, then it is locked once sent. Miss the clock and you watch this race and join the next.' },
-  { t: 'Pick a table', art: 'tables', net: true, p: () => `Everyone at a table watches the same race and shares one pool. Practice starts the moment a wallet joins, with labelled house stakes. Live starts on its first bet and needs ${tableMin()} players, or the round is cancelled and every stake goes back to your wallet. A full table sends you to the next one. The chip beside the round number switches tables.` },
+  { t: 'Beat the clock', art: 'clock', p: () => 'Betting runs on a 60 second clock and closes 4 seconds before the gates open. One bet per round: change your marble and stake until you press Bet, then it is locked once sent. Miss the clock and you watch this race and join the next.' },
+  { t: 'Pick a table', art: 'tables', net: true, p: () => `Everyone at a table watches the same race and shares one pool. Practice starts the moment a wallet joins, with labelled house stakes. Live, with players only and a minimum of ${tableMin()}, is coming soon. A full table sends you to the next one. The chip beside the round number switches tables.` },
   { t: 'Every course is new', art: 'tiles', p: () => 'Each race is built fresh from over a hundred sections, about 3 to 4 minutes long. Machines are toughest on whoever reaches them first and chaos hits everyone alike. Knockouts are rare, at most two a race, so both paid places always go to finishers.' },
   { t: 'Top two are paid', art: 'pool', p: () => `After a ${Math.round(RAKE * 100)}% rake, 75% of your table's pool goes to backers of first place and 25% to backers of second. A heavily backed marble pays less even when it wins.`, ex: poolExample },
   { t: 'Provably fair', art: 'flow', p: () => 'Every round is fixed by a hash before betting opens and revealed after the race, so anyone can replay it. On devnet rounds that hash is sealed on Solana.', note: true },
