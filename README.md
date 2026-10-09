@@ -127,4 +127,4 @@ js/                           rng.js, racers.js, betting.js shared with the engi
 
 ## License
 
-No license has been chosen yet, so all rights are reserved for now.
+Licensed under the [Apache License 2.0](LICENSE). Copyright 2026 MarbleRush project. The name, logo and artwork are not licensed as a brand; see [NOTICE](NOTICE) for third-party credits.

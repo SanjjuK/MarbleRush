@@ -1,0 +1,15 @@
+MarbleRush
+Copyright 2026 MarbleRush project
+
+This product includes software developed by third parties:
+
+  @solana/web3.js   (MIT License)     https://github.com/solana-labs/solana-web3.js
+  @solana/spl-token (Apache License 2.0)  https://github.com/solana-labs/solana-program-library
+
+The collision approach in MarbleRush2D/js/engine2d.js (a circle against a line
+segment, resolved by the closest point) was adapted from a small 2D marble-race
+prototype generated with the Lovable app builder. The rest of the engine was
+written for this project.
+
+"MarbleRush", its logo and its artwork are not licensed for use as a brand;
+the Apache License 2.0 does not grant trademark rights (section 6).
