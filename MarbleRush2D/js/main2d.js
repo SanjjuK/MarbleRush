@@ -23,6 +23,7 @@ import { buildTrack } from './track2d.js';
 import { Engine2D, SIM_DT, runRace2D, MAX_OUT } from './engine2d.js';
 import { Renderer2D } from './render2d.js';
 import { detectServer, RemoteBetting } from './net2d.js';
+import { sfx } from './sound2d.js';
 import { walletProviders, signIn, signOut, walletName, WALLET_LINKS } from './wallet2d.js';
 
 const $ = (id) => document.getElementById(id);
@@ -78,6 +79,7 @@ let countdown = 0, botTimer = 0, accumulator = 0, settleInfo = null, gridState =
 let readyIn = [];        // seconds until each other player readies up
 let finishedRound = 0;   // the round whose result is on screen
 let readyCount = 0;
+let cdSeen = 0, finSeen = 0, placedSeen = false;   // what the sounds last reacted to
 let lobby = LOBBY_SECONDS;   // seconds left on the lobby clock
 let lobbyShown = -1;         // last whole second written to the DOM
 let autoNote = '';           // what the clock did on everyone's behalf
@@ -178,6 +180,7 @@ function resetRoundUI() {
  * the engine the server ran.
  */
 function onNetRound(r) {
+  if (netRound && netRound.id === r.id && netRound.waiting && !r.waiting) sfx.play('start');      // the first bet started the clock
   netRound = r;
   lobbyShown = -1;                       // the label may change with no change of second (waiting for the first bet -> clock running)
   if (loadingNow) { loadingNow = false; document.body.classList.remove('loading'); renderTote(); renderFeed(); }
@@ -339,6 +342,9 @@ function enterCountdown() {
 
 function enterRacing() {
   phase = PHASE.RACING;
+  finSeen = 0;
+  if (!NET || !netRound || betting.now() - netRound.raceAt < 1500) sfx.play('go');      // not for someone who joins mid-race
+  sfx.bed(true);
   accumulator = 0;
   // Start from the committed state, not from wherever the idle physics of the
   // betting phase happened to leave the field. Without this the race on screen
@@ -356,6 +362,7 @@ function enterRacing() {
 
 function enterFinished() {
   phase = PHASE.FINISHED;
+  sfx.bed(false);
   $('phaseLabel').textContent = 'Race over';
   document.body.classList.remove('racing');
 
@@ -573,8 +580,12 @@ function setCam(mode) {
 }
 let camMode = 'auto';
 
+const SFX_EVENT = { out: 'ko', freeze: 'freeze', brake: 'brake', grab: 'grab', reorg: 'reorg' };
 function onRaceEvent(ev) {
   renderer.noteEvent(ev);
+  if (ev.type === 'warp') sfx.play(ev.dir > 0 ? 'warpUp' : 'warpDown');
+  else if (ev.type === 'load' && ev.kind === 'rocket') sfx.play('launch');
+  else if (SFX_EVENT[ev.type]) sfx.play(SFX_EVENT[ev.type]);
   if (ev.type === 'out') {
     pendingClips.push({ index: ev.index, cause: OUT_WORDS[ev.cause] || ev.cause, tickOut: engine.tick, until: engine.tick + Math.round(1.2 * 240) });
     renderFinalPool();
@@ -797,6 +808,7 @@ function pickMarble(i) {
   if (isLocked()) return;
   betFail = null;
   betting.select(i);
+  sfx.play('pick');
   renderTote();
 }
 
@@ -1105,6 +1117,7 @@ function onBetFailed(msg) {
   betFail = /cancelled in the wallet|declin|reject|denied/i.test(msg) ? `Declined in ${wn} · no ${cur()} spent`
     : /^bet cancelled$/i.test(msg) ? `Cancelled · no ${cur()} spent`
     : String(msg).replace(/^./, (c) => c.toUpperCase());
+  sfx.play('error');
   renderTote();
 }
 
@@ -1432,6 +1445,7 @@ function showResult() {
   resultKind = voided && mine >= 0 ? 'void'
     : si.place >= 0 && !voided ? (si.place === 0 && si.profit > 0 ? 'win' : 'place')
     : hasBet ? 'loss' : 'watch';
+  sfx.play(resultKind);
   const body = document.body;
   body.classList.add('results');
   renderer.setSpotlight(-1, '');
@@ -1766,6 +1780,9 @@ function frame(now) {
     if (lobby <= 0) closeLobby();
   }
 
+  { const placed = !!betting.placed; if (placed && !placedSeen) sfx.play('bet'); placedSeen = placed; }
+  if (phase !== PHASE.COUNTDOWN) cdSeen = 0;
+
   if (phase === PHASE.BETTING && NET) {
     engine.step(false);
   } else if (phase === PHASE.READY && NET) {
@@ -1795,7 +1812,9 @@ function frame(now) {
     if (readyCount >= betting.bots.length + 1) enterCountdown();
   } else if (phase === PHASE.COUNTDOWN) {
     if (!NET) countdown -= dt;
-    $('countdownValue').textContent = Math.max(1, Math.ceil(countdown));
+    const cdShown = Math.max(1, Math.ceil(countdown));
+    if (cdShown !== cdSeen) { cdSeen = cdShown; sfx.play('tick'); }
+    $('countdownValue').textContent = cdShown;
     renderGantry();
     engine.step(false);
     if (countdown <= 0 && !NET) enterRacing();
@@ -1828,6 +1847,8 @@ function frame(now) {
     }
     if (accumulator > SIM_DT * 600) accumulator = 0;
 
+    const fin = engine.marbles.reduce((n, m) => n + (m.finished ? 1 : 0), 0);
+    if (fin > finSeen) { if (fin - finSeen <= 2) sfx.play('finish', finSeen); finSeen = fin; }
     recordFrame();
     // Race time stops when the last marble is home; the field rolls on into the basin after that.
     const home = engine.allFinished ? Math.max(0, ...engine.marbles.filter(m => m.finished).map(m => m.finishTime)) : 0;
@@ -2429,6 +2450,7 @@ $('camToggle').onclick = () => {
 
 // Small debug surface, same idea as the 3D build's window.__marblerush.
 window.__mr2d = {
+  sfx,
   get phase() { return phase; },
   get result() { return result; },
   get engine() { return engine; },
@@ -2457,3 +2479,19 @@ window.__mr2d = {
   /** Wind the lobby clock down to `secs`, for testing the expiry path. */
   clock(secs = 0.05) { lobby = secs; lobbyShown = -1; },
 };
+
+/* --------------------------------- sound --------------------------------- */
+
+const SPEAKER_ON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
+const SPEAKER_OFF = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
+function renderSoundBtn() {
+  const b = $('soundBtn'), off = sfx.muted;
+  b.innerHTML = off ? SPEAKER_OFF : SPEAKER_ON;
+  b.setAttribute('aria-pressed', String(!off));
+  b.title = off ? 'Sound is off: turn it on' : 'Sound is on: mute';
+  b.setAttribute('aria-label', off ? 'Turn sound on' : 'Mute sound');
+}
+$('soundBtn').onclick = () => sfx.toggle();
+sfx.onChange(renderSoundBtn);
+renderSoundBtn();
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button'); if (b && b.id !== 'soundBtn' && !b.disabled) sfx.play('click'); }, true);

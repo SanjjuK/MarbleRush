@@ -105,6 +105,7 @@ MarbleRush2D/
   index.html, css/, js/       the game page (canvas) and its client modules
   js/engine2d.js              the deterministic race engine, no DOM
   js/wallet2d.js, net2d.js    wallet sign-in; the live round mirror and signed bets
+  js/sound2d.js               sound effects made with Web Audio (no audio files); on by default, mute button in the top bar
   js/vendor/solana-web3.js    the one web3.js class the page needs, bundled (npm run build:vendor)
   server/server.mjs           rounds, pool, SSE, API, payouts
   server/auth.mjs             wallet sign-in and sessions
