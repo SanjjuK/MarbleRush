@@ -86,8 +86,8 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "loop": {
-  "swaps": 1.57,
-  "grow": 0.31,
+  "swaps": 1.48,
+  "grow": 0.26,
   "secs": 3.4,
   "nudge": 0
  },
@@ -212,9 +212,9 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "looprow": {
-  "swaps": 2.4,
-  "grow": 0.47,
-  "secs": 7.5,
+  "swaps": 1.98,
+  "grow": 0.23,
+  "secs": 7,
   "nudge": 0
  },
  "rugpull": {
@@ -590,9 +590,9 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "tripleloop": {
-  "swaps": 1.82,
-  "grow": 0.57,
-  "secs": 11.5,
+  "swaps": 2.08,
+  "grow": 0.51,
+  "secs": 11,
   "nudge": 0
  },
  "demolition": {

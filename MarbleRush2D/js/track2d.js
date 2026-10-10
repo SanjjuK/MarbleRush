@@ -622,9 +622,17 @@ function loopFork(ctx0, rng, y0, flip) {
   // The ring. Screen angles: +PI/2 is the bottom, 0 the right, -PI/2 the
   // top. Travel is bottom -> right -> top -> left -> bottom. Mirroring
   // x reverses that sense, which is exactly what the mirrored copy wants.
+  // The ring's wall friction is LOW (0.03, walls are 0.06). Friction holds a
+  // marble on any slope under atan(mu x (1 + rest)): 4.2 degrees at 0.06. The
+  // ring is built from 9-degree segments, and the one beside its lowest point
+  // slopes 3.6-4.5, so a slow marble parked on it for good: Tripleloop 0.9%
+  // and Looprow 1.8% of appearances, always at the ring's foot (x 533-564).
+  // At 0.03 the hold stops at 2.1 degrees.
+  const ringMu = T.ringMu ?? 0.03;
   const ring = (a0, a1, o) => {
-    if (!flip) { ctx.arc(cx, cy, R, a0, a1, o); return; }
-    ctx.arc(TRACK_W - cx, cy, R, Math.PI - a0, Math.PI - a1, o);
+    const oo = { ...(o || {}), mu: ringMu };
+    if (!flip) { ctx.arc(cx, cy, R, a0, a1, oo); return; }
+    ctx.arc(TRACK_W - cx, cy, R, Math.PI - a0, Math.PI - a1, oo);
   };
   ring(Math.PI / 2, 0, L0);                        // lower right: in
   ring(0, -Math.PI, undefined);                    // over the top: both

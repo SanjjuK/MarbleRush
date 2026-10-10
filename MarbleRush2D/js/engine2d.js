@@ -647,7 +647,7 @@ export class Engine2D {
         if (s.gate && this.timedGateOpen(s.gate)) continue;
         if (s.regroup !== undefined && this.regroupState[s.regroup].open) continue;
         if (s.belt) { this._belt(m, s); continue; }
-        if (this._segment(m, s, s.rest ?? REST_WALL, MU_WALL) && s.boost) {
+        if (this._segment(m, s, s.rest ?? REST_WALL, s.mu ?? MU_WALL) && s.boost) {
           // A dash pad: whatever the marble was doing, it now leaves at the
           // pad's speed. It re-fires every time, which is what rescues a
           // marble that failed the loop and rolled back: it is simply
