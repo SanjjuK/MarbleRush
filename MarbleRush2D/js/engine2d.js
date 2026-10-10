@@ -1437,6 +1437,9 @@ export class Engine2D {
     const st = this.cannonState[i];
     const was = st.until[m.index];
     if (was !== undefined && (!c.refire || this.tick < was)) return false;
+    // A capped cannon has taken its quota: later marbles pass through the
+    // breech untouched (order of arrival only; nothing reads race position).
+    if (c.cap !== undefined && st.served >= c.cap) return false;
     const dx = m.x - c.x, dy = m.y - c.y;
     if (dx * dx + dy * dy >= c.catch * c.catch) return false;
     // A fuse of random length when `delayHi` is set (a bridge's confirmation
@@ -1509,7 +1512,9 @@ export class Engine2D {
     if (cs) {
       for (const o of this.marbles) {
         if (!o.held || o.held.cannon === undefined) continue;
-        const c = cs[o.held.cannon], dx = m.x - c.x, dy = m.y - c.y, r = c.catch + 48;
+        // The queue behind a loaded cannon is 3-4 marbles deep (up to ~150
+        // back along the ramp), and a worn hold lasts up to 2.5s.
+        const c = cs[o.held.cannon], dx = m.x - c.x, dy = m.y - c.y, r = c.catch + 150;
         if (dx * dx + dy * dy < r * r) return true;
       }
     }

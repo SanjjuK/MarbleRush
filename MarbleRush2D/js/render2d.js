@@ -1105,11 +1105,14 @@ export class Renderer2D {
       if (c.kind && c.kind !== 'cannon') { this._launcher(g, c, loaded); continue; }
       const L = Math.hypot(c.vx, c.vy), ux = c.vx / L, uy = c.vy / L;
       g.lineCap = 'round';
+      // A capped cannon that has taken its quota is spent: dark and dull,
+      // so a viewer sees it will let the next marbles by.
+      const spent = c.cap !== undefined && E.cannonState[i].served >= c.cap && !loaded.length;
       g.lineWidth = 30;
-      g.strokeStyle = '#3A332D';
+      g.strokeStyle = spent ? '#23201C' : '#3A332D';
       g.beginPath(); g.moveTo(c.mx - ux * 40, c.my - uy * 40); g.lineTo(c.mx + ux * 10, c.my + uy * 10); g.stroke();
       g.lineWidth = 3;
-      g.strokeStyle = C.goldDeep;
+      g.strokeStyle = spent ? '#5A4F3A' : C.goldDeep;
       g.beginPath(); g.moveTo(c.mx - ux * 40, c.my - uy * 40); g.lineTo(c.mx + ux * 10, c.my + uy * 10); g.stroke();
       for (const m of E.marbles) {
         if (!m.held || m.held.cannon !== i) continue;

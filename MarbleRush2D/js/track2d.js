@@ -66,6 +66,11 @@ export const TUNE = {
     // after halfway 5.2 -> 6.3.
     late: { from: 0.5, k: 4, cap: 2.5 },
   },
+  // Each Cannons-section cannon takes only the first 2 marbles to reach it;
+  // the rest pass through (Sanjay). 300 races behind Pinstorm, vs every marble
+  // caught: place swaps 2.5 -> 2.7, field spread through it +0.7s -> -0.9s,
+  // leader kept 49% -> 48%; cap 1 closed -1.2s but swapped less (2.5).
+  cannons: { cap: 2 },
 };
 
 /**
@@ -196,12 +201,13 @@ function makeCtx(out, baseY, rng, section = 0) {
 
     /**
      * A cannon. A marble reaching the breech at (x, y) is loaded, held
-     * `delay` seconds at the muzzle (mx, my), and fired at (vx, vy).
+     * `delay` seconds at the muzzle (mx, my), and fired at (vx, vy). `cap`
+     * limits it to the first `cap` marbles that reach it; the rest pass.
      */
-    cannon(x, y, mx, my, vx, vy, { delay = 0.6, delayHi, catchR = 34, teleport, kind, gap = 60, refire } = {}) {
+    cannon(x, y, mx, my, vx, vy, { delay = 0.6, delayHi, catchR = 34, teleport, kind, gap = 60, refire, cap } = {}) {
       out.cannons.push({ x, y: y + baseY, mx, my: my + baseY, vx, vy, catch: catchR,
                          delay: Math.round(delay * 240), delayHi: delayHi ? Math.round(delayHi * 240) : 0,
-                         teleport, kind, gap, refire, section });
+                         teleport, kind, gap, refire, cap, section });
     },
 
     /** A price chart's drawing data (candles, volume, axis): renderer only. */
@@ -1680,8 +1686,11 @@ export const SECTIONS = [
       ctx.seg(385, 220, 180, 330);
       ctx.seg(415, 220, 620, 330);
       const d = rng() < 0.5 ? [0.35, 0.9] : [0.9, 0.35];
-      ctx.cannon(150, 350, 160, 330, 520, -520, { delay: d[0] });
-      ctx.cannon(650, 350, 640, 330, -520, -520, { delay: d[1] });
+      // `cap`: how many marbles each cannon takes (TUNE.cannons.cap; unset
+      // is every marble, the old behaviour).
+      const cap = TUNE.cannons?.cap;
+      ctx.cannon(150, 350, 160, 330, 520, -520, { delay: d[0], cap });
+      ctx.cannon(650, 350, 640, 330, -520, -520, { delay: d[1], cap });
       for (let row = 0; row < 3; row++) {
         const y = 520 + row * 85, n = row % 2 ? 4 : 5, span = row % 2 ? 130 : 125;
         const x0 = 400 - span * (n - 1) / 2;

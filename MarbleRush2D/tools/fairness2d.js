@@ -17,8 +17,10 @@
 
 import { makeRng } from '../../js/rng.js';
 import { MARBLE_DATA } from '../../js/racers.js';
-import { buildTrack, OVERFLOW } from '../js/track2d.js';
+import { buildTrack, OVERFLOW, TUNE } from '../js/track2d.js';
 import { Engine2D, runRace2D } from '../js/engine2d.js';
+// Like drama2d: TUNE='{"wear":{}}' compares a setting against the defaults.
+if (process.env.TUNE) Object.assign(TUNE, JSON.parse(process.env.TUNE));
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };

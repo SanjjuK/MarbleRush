@@ -188,9 +188,9 @@ export const SECTION_STATS = {
   "nudge": 0
  },
  "cannons": {
-  "swaps": 3.1,
-  "grow": 1.27,
-  "secs": 6.1,
+  "swaps": 3.63,
+  "grow": -0.4,
+  "secs": 5.3,
   "nudge": 0
  },
  "marketmakers": {
