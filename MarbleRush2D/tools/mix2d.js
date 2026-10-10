@@ -7,7 +7,9 @@
 // that parameter: share of each kind over the whole course and in the final
 // 18% (the run-in), and the longest unbroken run of one kind.
 import { makeRng } from '../../js/rng.js';
-import { buildTrack, KIND } from '../js/track2d.js';
+import { buildTrack, KIND, TUNE } from '../js/track2d.js';
+// Like drama2d: TUNE='{"mix":{"off":1}}' compares a setting against the defaults.
+if (process.env.TUNE) Object.assign(TUNE, JSON.parse(process.env.TUNE));
 
 console.warn = () => {};
 const argv = process.argv.slice(2);
