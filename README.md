@@ -4,11 +4,13 @@
 
 **Live marble racing on Solana where the result is sealed on-chain before anyone can bet, and anyone can replay the race to check it.**
 
-**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
+**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [Try it](TRY-IT.md) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
 
 > **Status: devnet prototype.** Test tokens only, worthless by design. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money.
 
 ## Try it in three minutes
+
+(A step-by-step version with Phantom's devnet switch is in [TRY-IT.md](TRY-IT.md).)
 
 1. Install the **Phantom** (or Solflare / Backpack) wallet and switch it to **Devnet** (Settings, Developer Settings, Testnet Mode, Solana Devnet).
 2. Open the [live table](https://34-29-110-88.sslip.io/MarbleRush2D/), connect your wallet (a free message signature, no transaction), and take test **RUSH** from the wallet panel. You never need SOL: the server pays the network fee.
