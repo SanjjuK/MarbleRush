@@ -1269,6 +1269,8 @@ body.results.race-on .tower { display: none; }
 .prow .wcopy.head { display: inline-flex; flex: none; width: var(--tap); height: var(--tap); margin-right: calc(-1 * var(--s1)); }
 .wbtn.dashed:disabled { background: transparent; color: var(--text-3); box-shadow: none; border: 1px dashed var(--line-strong); cursor: default; }
 .presult { margin: var(--s1) 0 0; font: 500 var(--fs-sm)/1.5 var(--font-ui); color: var(--text-1); }
+.presult b { color: var(--text-0, #fff); font-weight: 700; }
+.presult a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .pdev { margin-top: var(--s2); }
 .pdev code { display: block; margin-top: var(--s1); padding: var(--s1) var(--s2); border-radius: var(--r-sm); background: var(--surface-2); font: 500 var(--fs-sm) ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); overflow-wrap: anywhere; }
 .pdev .pcmd { display: flex; align-items: center; gap: var(--s1); }

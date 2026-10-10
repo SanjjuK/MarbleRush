@@ -138,6 +138,7 @@ const REACH = 72;
 export const SETTLE_TICKS = 240;
 const STUCK_MOVE    = 20;     // world units that count as "it is still going"
 const LOITER_TICKS  = 8 * 240; // no new progress down the course for this long: trapped
+const THROW_GRACE   = 2 * 240; // extra loiter time after a flipper throws a marble back up the course
 
 /* ------------------------------ helpers -------------------------------- */
 
@@ -858,6 +859,14 @@ export class Engine2D {
         if (fire) {
           s.tick = 0; s.kicked |= fire;
           if (f.wear) for (let b = fire; b; b &= b - 1) s.wear++;
+          // A thrown marble is sent back up the course and has to come down
+          // again before it makes NEW progress, so the loiter clock (8s since
+          // the last new best) would run out on its way back: every Flippers,
+          // Multiball and Pinball "loiter" rescue measured was a marble 150-250
+          // short of its best point, thrown 4-6s earlier. Restart the clock at
+          // the throw, plus 2s: a marble that really is trapped is still
+          // rescued, 10s after its last throw.
+          for (let k = 0; k < 5; k++) if (fire & (1 << k)) this.marbles[k].bestTick = this.tick + THROW_GRACE;
         }
       }
       // A worn flipper gets shorter only while it is at rest, and the pose

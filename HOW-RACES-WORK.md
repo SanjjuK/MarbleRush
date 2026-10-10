@@ -8,7 +8,7 @@ MarbleRush is a live parimutuel game: everyone at a table watches the same race 
 2. **Bet.** A player signs one transaction that moves their stake into the vault. The server builds it and pays the network fee, so players never need SOL. One bet per wallet per round.
 3. **Race.** The race is deterministic: every browser replays the same race from the public course seed and the revealed race seed. It lasts about 3.5 minutes; a whole round is about 4 to 5 minutes.
 4. **Reveal and pay.** The seed, the finishing order and the pool go on Solana, then winners are paid from the vault. First place shares 75% of the pool after rake, second shares 25%.
-5. **Verify.** `node MarbleRush2D/tools/verify-round.mjs <reveal signature>` trusts only the chain: it checks the seed against the hash, that the commit came first, and replays the race.
+5. **Verify.** In the app, **Round proof, then Verify this race** checks the revealed seed against the hash and races the round again in your browser, then compares the order with the one that was paid. `node MarbleRush2D/tools/verify-round.mjs <reveal signature>` trusts only the chain: it checks the seed against the hash, that the commit came first, and replays the race.
 
 ## When a race happens: tables
 

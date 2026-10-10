@@ -16,7 +16,7 @@
 // If the displayed race ever disagrees with the stored one, that is a
 // determinism bug and it is reported loudly rather than hidden.
 
-import { makeRng } from '../../js/rng.js';
+import { makeRng, seedCommitment } from '../../js/rng.js';
 import { MARBLE_DATA, MARBLE_DARK } from '../../js/racers.js';
 import { BettingManager, fmtAmount, fmtOdds, MIN_BET, RAKE, CURRENCY, PLACE_SHARES } from '../../js/betting.js';
 import { buildTrack } from './track2d.js';
@@ -1895,6 +1895,7 @@ function frame(now) {
       // A signed-out spectator is never sent a settlement, so for them the server's 'results' phase is enough.
       else if (netRound && netRound.phase === 'results' && (betting.guest || (betting.settled && betting.settled.id === netRound.id))) {
         result = netRound.result;
+        if (!$('proofOverlay').hidden) renderProof();       // the card can now verify against the order that was paid
         enterFinished();
       }
     }
@@ -2316,6 +2317,11 @@ const SVG_X = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true
 const midHash = (h, a = 12, b = 4) => (h && h.length > a + b + 3 ? `${h.slice(0, a)}...${h.slice(-b)}` : h || '');
 
 /** What Solana (or, without a chain, only the server's commitment) holds for the round on screen. */
+// The round the open proof card describes, and the answer to its "Replay it yourself" button. The card is
+// opened for ONE round (the one just raced) and keeps it: the next round opens seconds after the result, and
+// the card used to flip to that round (no seed revealed yet, so a disabled button) or be rebuilt by a chain
+// event, which wiped the answer: "I clicked Replay it yourself and nothing happened".
+let proofSnap = null, proofCheck = null;
 function proofFacts() {
   const c = NET ? betting.chain : null, n = betting.round;
   const hash = betting.commitment || '', seed = betting.seed || '';
@@ -2326,11 +2332,20 @@ function proofFacts() {
     else if (c.commit.status === 'pending') state = 'sealing';
     else state = 'none';
   }
-  return { c, n, hash, seed, state, token: betting.token || null };
+  // What a replay needs, and what it is checked against: the round's course seed and length, and the finishing
+  // order the server published (known once the result is in).
+  const nr = NET && netRound && netRound.id === n ? netRound : null;
+  const live = { c, n, hash, seed, state, token: betting.token || null,
+                 courseSeed: nr ? nr.courseSeed : '', blocks: nr ? (nr.blocks || 0) : 0, order: nr && nr.result ? nr.result.finishOrder : null };
+  if (proofSnap && proofSnap.n !== n) return proofSnap;               // the round moved on: keep showing the one opened
+  proofSnap = { ...live, c: c ? JSON.parse(JSON.stringify(c)) : c };    // same round: follow it, and remember it
+  return live;
 }
 
 function renderProof() {
-  const { c, n, hash, seed, state, token } = proofFacts();
+  const { c, n, hash, seed, state, token, courseSeed, blocks, order } = proofFacts();
+  // Verifying replays the whole race, which would give the winner away while it is still running: wait for the result.
+  const canVerify = !!(seed && hash && (!NET || (order && courseSeed)));
   const tx = (slot, later) => {
     if (!c || !c.cluster) return `<span class="v later">None</span>`;
     if (slot.status === 'confirmed' && slot.sig) return `<a class="v" href="${explorer(slot.sig, c.cluster)}" target="_blank" rel="noopener noreferrer">${midHash(slot.sig, 4, 3)} ↗</a>`;
@@ -2363,7 +2378,7 @@ function renderProof() {
     row('Commit tx', c && c.cluster ? tx(c.commit, 'Pending') : `<span class="v later">None</span>`) +
     row('Reveal tx', c && c.cluster ? tx(c.reveal, 'After the race') : `<span class="v later">None</span>`) +
     `</div>` +
-    (state === 'none' ? '' : `<button type="button" class="wbtn dashed" id="proofReplay"${seed && hash ? '' : ' disabled'}>${seed && hash ? 'Replay it yourself' : 'Replay opens after the reveal'}</button><p class="presult" id="proofResult" role="status"></p>`) +
+    (state === 'none' ? '' : `<button type="button" class="wbtn dashed" id="proofReplay"${canVerify ? '' : ' disabled'}>${canVerify ? 'Verify this race' : seed && hash ? 'Verify opens when the race ends' : 'Verify opens after the reveal'}</button><p class="presult" id="proofResult" role="status" aria-live="polite"></p>`) +
     (revealSig ? `<div class="pdev"><p class="wlabel">For developers</p><div class="pcmd"><code>npm run verify-round -- ${esc(revealSig)}</code>${copy(`npm run verify-round -- ${revealSig}`, 'command')}</div></div>` : '');
   $('proofX').onclick = closeProof;
   for (const b of $('proofSheet').querySelectorAll('[data-pcopy]')) {
@@ -2371,25 +2386,76 @@ function renderProof() {
       try { await navigator.clipboard.writeText(b.dataset.pcopy); b.classList.add('done'); setTimeout(() => b.classList.remove('done'), 1400); } catch (_) { /* clipboard blocked */ }
     };
   }
+  const out = $('proofResult');
+  if (proofCheck && proofCheck.n === n) out.innerHTML = proofCheck.html;        // the answer survives a rebuild
   const rp = $('proofReplay');
   if (rp && !rp.disabled) rp.onclick = async () => {
-    const out = $('proofResult');
+    // Show an answer, remember it for this round, and keep it in view (the card is rebuilt by chain events).
+    const put = (html) => {
+      proofCheck = { n, html };
+      const o = $('proofResult');
+      if (o) { o.innerHTML = html; o.scrollIntoView({ block: 'nearest' }); }
+    };
+    const names = (list) => list.map(i => MARBLE_DATA[i].name).join(', ');
+    const links = [revealSig && c && c.cluster ? `<a href="${explorer(revealSig, c.cluster)}" target="_blank" rel="noopener noreferrer">Reveal transaction on Solana ↗</a>` : '',
+                   c && c.commit.status === 'confirmed' && c.commit.sig ? `<a href="${explorer(c.commit.sig, c.cluster)}" target="_blank" rel="noopener noreferrer">Commit transaction ↗</a>` : ''].filter(Boolean).join(' · ');
+    const tail = links ? `<br>${links}` : '';
+    rp.disabled = true;
     try {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
-      const got = [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
-      out.textContent = got === hash
-        ? 'The revealed seed hashes to the committed hash. The race you watched was run from this seed on your own screen.'
-        : 'The revealed seed does NOT hash to the committed hash. Do not trust this round.';
-    } catch (_) { out.textContent = 'This browser cannot compute the hash here. Use the developer command below.'; }
+      put('Checking the seed…');
+      // A server round commits to SHA-256 of the seed. The local single-player mode (localhost only) commits to a
+      // short display hash, so it is checked the way it was made.
+      let got;
+      if (NET) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+        got = [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+      } else got = seedCommitment(seed);
+      if (got !== hash) { put('The revealed seed does NOT hash to the committed hash. Do not trust this round.' + tail); return; }
+      if (!NET) { put('The revealed seed hashes to the committed hash. (Practice on this computer: nothing is recorded on Solana.)'); return; }
+      // The real check: race it again from the two seeds, the way every browser and `verify-round` do, and compare
+      // with the order that was paid.
+      const replayed = await replayFromSeeds(courseSeed, seed, blocks, (t) => put(`The seed matches the committed hash. Replaying the race from it… ${t} s simulated`));
+      put(replayed.join(',') === order.join(',')
+        ? `The seed matches the committed hash, and racing it again on your screen gives <b>${names(replayed)}</b>: exactly the order that was paid.${tail}`
+        : `The race replayed from the seed gives <b>${names(replayed)}</b>, but the order paid was <b>${names(order)}</b>. Do not trust this round.${tail}`);
+    } catch (_) {
+      put('This browser could not finish the check here. Use the developer command below.' + tail);
+    } finally {
+      const b = $('proofReplay'); if (b) b.disabled = false;
+    }
   };
 }
+
+/**
+ * Race a round again from its two seeds, headless, in slices so the page stays alive. The same recipe as the
+ * server (racesim.mjs) and `tools/verify-round.mjs`: track from the course seed, engine from the race seed, run
+ * to the end, finishers by time then the knocked out, last out highest.
+ */
+async function replayFromSeeds(courseSeed, raceSeed, blocks, onProgress) {
+  const tr = buildTrack(makeRng(courseSeed), blocks ? { count: blocks } : {});
+  const eng = new Engine2D({ track: tr, rng: makeRng(raceSeed), racers: MARBLE_DATA });
+  eng.settle(); eng.openGate();
+  const done = [];
+  let guard = Math.ceil(MAX_RACE_SECONDS / SIM_DT);
+  while (guard > 0 && !eng.allFinished) {
+    for (let k = 0; k < 2400 && guard > 0 && !eng.allFinished; k++, guard--) {          // 10 simulated seconds a slice
+      eng.step(true);
+      for (const m of eng.marbles) if (m.finished && !done.includes(m.index)) done.push(m.index);
+    }
+    onProgress(Math.round(eng.time));
+    await new Promise(r => setTimeout(r, 0));
+  }
+  const out = eng.marbles.filter(m => m.out).sort((a, b) => b.outTime - a.outTime).map(m => m.index);
+  return done.concat(out);
+}
 function openProof() {
+  proofSnap = null;                                       // a fresh opening describes the current round
   renderProof();
   $('proofOverlay').hidden = false;
   const c = $('proofSheet'); c.tabIndex = -1; c.setAttribute('role', 'dialog'); c.setAttribute('aria-modal', 'true'); c.setAttribute('aria-labelledby', 'proofTitle');
   try { c.focus({ preventScroll: true }); } catch (_) { /* nothing to focus */ }
 }
-function closeProof() { $('proofOverlay').hidden = true; $('proofSheet').style.transform = ''; }
+function closeProof() { $('proofOverlay').hidden = true; $('proofSheet').style.transform = ''; proofSnap = null; }
 sheetCard($('proofOverlay'), $('proofSheet'), closeProof);
 
 /* ------------------------------ onboarding (C1 to C5) ------------------------------ */
@@ -2490,12 +2556,13 @@ $('camToggle').onclick = () => {
 
 // Small debug surface, same idea as the 3D build's window.__marblerush.
 window.__mr2d = {
+  proofRefresh: () => { if (!$('proofOverlay').hidden) renderProof(); },     // tests: rebuild the open proof card as a chain event does
   sfx,
   get phase() { return phase; },
   get result() { return result; },
   get engine() { return engine; },
   get track() { return track; },
-  betting, get renderer() { return renderer; },
+  get betting() { return betting; }, get renderer() { return renderer; },     // getters: both are replaced after boot
   get lobby() { return lobby; },
   get net() { return NET; },
   get drift() { return { mine: Object.fromEntries(mySecond), server: Object.fromEntries(srvSecond) }; },
