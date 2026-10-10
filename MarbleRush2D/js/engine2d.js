@@ -139,6 +139,7 @@ export const SETTLE_TICKS = 240;
 const STUCK_MOVE    = 20;     // world units that count as "it is still going"
 const LOITER_TICKS  = 8 * 240; // no new progress down the course for this long: trapped
 const THROW_GRACE   = 2 * 240; // extra loiter time after a flipper throws a marble back up the course
+const ROTOR_GRACES  = 3;       // a rotor's upward throws buy this many graces between new bests
 
 /* ------------------------------ helpers -------------------------------- */
 
@@ -408,7 +409,7 @@ export class Engine2D {
       m.finished = false;
       m.finishTime = 0;
       m.out = false; m.outTime = 0; m.outBy = ''; m.layer = 0;
-      m.progress = m.y; m.bestTick = 0;
+      m.progress = m.y; m.bestTick = 0; m.graces = 0;
       m.stuckX = m.x; m.stuckY = m.y;
       m.stuckTime = 0; m.lastNudge = null; m.wellUntil = 0;
     }
@@ -446,7 +447,7 @@ export class Engine2D {
     this.marbles.forEach((m, i) => {
       const s = snap[i];
       m.x = s[0]; m.y = s[1]; m.vx = s[2]; m.vy = s[3]; m.spin = s[4];
-      m.finished = false; m.finishTime = 0; m.progress = m.y; m.bestTick = 0;
+      m.finished = false; m.finishTime = 0; m.progress = m.y; m.bestTick = 0; m.graces = 0;
       m.out = false; m.outTime = 0; m.outBy = ''; m.layer = 0;
       m.stuckX = m.x; m.stuckY = m.y; m.stuckTime = 0; m.lastNudge = null; m.wellUntil = 0;
     });
@@ -744,7 +745,7 @@ export class Engine2D {
         m.finished = true;
         m.finishTime = this.time;
       }
-      if (m.y > m.progress) { m.progress = m.y; m.bestTick = this.tick; }
+      if (m.y > m.progress) { m.progress = m.y; m.bestTick = this.tick; m.graces = 0; }
     }
 
     this._marbleVsMarble();
@@ -1284,6 +1285,13 @@ export class Engine2D {
       m.vx -= vsx; m.vy -= vsy;
       resolve(m, nx, ny, o.rest ?? 0.35, MU_WALL);
       m.vx += vsx; m.vy += vsy;
+      // A rotor can bat a marble back up the course, like a flipper: that is the
+      // rotor working, not a trap, so it earns the loiter clock a little time
+      // (a few times at most, so a marble it never lets go still gets rescued).
+      if (m.vy < -150 && m.bestTick <= this.tick && (m.graces | 0) < ROTOR_GRACES) {
+        m.graces = (m.graces | 0) + 1;
+        m.bestTick = this.tick + THROW_GRACE;
+      }
     }
   }
 
