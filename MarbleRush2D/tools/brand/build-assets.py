@@ -50,7 +50,7 @@ def icon_svg(symbol, size, rounded):
                 f'<rect width="{size}" height="{size}"{r} fill="{BG}"/><use href="#{symbol}" x="{size*.08:.1f}" y="{size*.08:.1f}" width="{size*.84:.1f}" height="{size*.84:.1f}"/></svg>')
 
 (ROOT / 'assets').mkdir(exist_ok=True)
-(ROOT / 'assets/favicon.svg').write_text(icon_svg('g-cd', 64, True))
+(ROOT / 'assets/favicon.svg').write_text(icon_svg('g-d', 64, True))
 (ROOT / 'assets/icon-180.svg').write_text(icon_svg('g-d', 180, False))     # the page for the PNG; iOS rounds the corners itself
 
 og = flat(f'''<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">
@@ -98,6 +98,6 @@ if '--media' in sys.argv:
 page = lambda svg, w, h: f'<!doctype html><style>html,body{{margin:0;background:transparent}}svg{{display:block}}</style>{svg}'
 shot(og, 'assets/og.png', 1200, 630)
 shot(page((ROOT / 'assets/icon-180.svg').read_text(), 180, 180), 'assets/apple-touch-icon.png', 180, 180)
-shot(page(icon_svg('g-cd', 32, True), 32, 32), 'assets/favicon-32.png', 32, 32)
+shot(page(icon_svg('g-d', 32, True), 32, 32), 'assets/favicon-32.png', 32, 32)
 (ROOT / 'assets/icon-180.svg').unlink()
 print('ok')
