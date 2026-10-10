@@ -86,7 +86,7 @@ if '--media' in sys.argv:
     shot(thumb, out / 'thumbnail-1280x720.png', 1280, 720)
     head = '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">'
     css = '<style>:root{' + ''.join(f'--{k}:{v};' for k, v in vars_.items()) + '}html,body{margin:0;background:transparent}</style>'
-    hid = f'<svg width="0" height="0" style="position:absolute"><defs>{defs}{sym["hyb-d"]}{sym["course"]}</defs></svg>'
+    hid = f'<svg width="0" height="0" style="position:absolute"><defs>{defs}{sym["g-d"]}{sym["hyb-d"]}{sym["course"]}</defs></svg>'
     word = lambda sz: f'<span style="font-family:var(--font-data);font-size:{sz}px;font-weight:600;line-height:1;letter-spacing:-.01em;white-space:nowrap;color:var(--text-1)">Marble<span style="font-weight:700;color:var(--celebrate)">Rush</span></span>'
     lock = flat(head + css + hid + f'<div style="display:inline-flex;align-items:center;gap:40px;padding:60px 80px"><svg width="260" height="260"><use href="#hyb-d" width="260" height="260"/></svg>{word(230)}</div>')
     shot(lock, out / 'logo-lockup-transparent.png', 1500, 380, transparent=True)
