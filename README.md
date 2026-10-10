@@ -4,7 +4,7 @@
 
 **Live marble racing on Solana where the result is sealed on-chain before anyone can bet, and anyone can replay the race to check it.**
 
-**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
+**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
 
 > **Status: devnet prototype.** Test tokens only, worthless by design. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money.
 
