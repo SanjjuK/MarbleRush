@@ -4,7 +4,7 @@
 
 **Live marble racing on Solana where the result is sealed on-chain before anyone can bet, and anyone can replay the race to check it.**
 
-**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; **[Demo video (2 min)](https://youtu.be/UpIkEwRXyes)** &nbsp;·&nbsp; [Pitch video (2 min)](https://youtu.be/uqZaTEtjcuc) &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [Try it](TRY-IT.md) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
+**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; **[Demo video (2 min)](https://youtu.be/UpIkEwRXyes)** &nbsp;·&nbsp; [Pitch video (2 min)](https://youtu.be/Uj3GOLBgqPI) &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [Try it](TRY-IT.md) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
 
 > **Status: devnet prototype.** Test tokens only, worthless by design. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money. Mainnet is targeted for early 2027, after an audited escrow program (see [Roadmap](#roadmap)).
 
