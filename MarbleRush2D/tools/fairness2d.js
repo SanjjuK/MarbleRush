@@ -28,7 +28,7 @@ const N = parseInt(arg('races', '300'), 10);
 const tag = arg('tag', 'fair');
 
 const wins = MARBLE_DATA.map(() => 0);
-// By START SLOT too, Sanjay's ask: which racer won is not enough, a course
+// By START SLOT too, asked in playtesting: which racer won is not enough, a course
 // could favour the left corner or the middle and hide it behind the random
 // draw for slots. 0 = left wall ... 4 = right wall.
 const SLOTS = ['left corner', '2nd left', 'middle', '2nd right', 'right corner'];

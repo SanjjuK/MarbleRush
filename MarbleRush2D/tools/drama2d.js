@@ -2,7 +2,7 @@
 //
 //   node MarbleRush2D/tools/drama2d.js --races 200 [--tag drama] [--sections]
 //
-// Sanjay, after watching races: "after half point it's certain which marble
+// Playtest note, after watching races: "after half point it's certain which marble
 // is going to win". Fairness says every marble wins 20% of the time; it says
 // nothing about WHEN the race is decided. A race whose winner is obvious at
 // the halfway mark is fair and boring, and on a betting product boring is a

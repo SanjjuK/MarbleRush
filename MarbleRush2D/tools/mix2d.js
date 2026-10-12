@@ -2,7 +2,7 @@
 //
 //   node MarbleRush2D/tools/mix2d.js [--courses 1000]
 //
-// Sanjay: "pinball type elements are appearing at high frequency than other
+// Playtest note: "pinball type elements are appearing at high frequency than other
 // elements... should we have a parameter to track and test that?" This is
 // that parameter: share of each kind over the whole course and in the final
 // 18% (the run-in), and the longest unbroken run of one kind.

@@ -1,6 +1,6 @@
 // scenes2d.js: The set dressing behind each crypto section.
 //
-// Sanjay: the crypto machines "look like another normal section... make them
+// Playtest note: the crypto machines "look like another normal section... make them
 // feel crypto themed like how the chart section is". The chart works because
 // the whole band BECOMES the thing (a trading screen with candles, a price
 // tag and a news crawl), not because it has a label. So every crypto section
@@ -90,7 +90,7 @@ function spot(key, w, h, px, py) {
 /**
  * A glass read-out plate, the chart's price-tag style. (x, y, align) is only
  * where it would LIKE to be: it goes to the nearest spot in its section clear
- * of every wall, peg and machine (Sanjay: pegs were sitting on the cards),
+ * of every wall, peg and machine (playtest: pegs were sitting on the cards),
  * worked out once per course and kept, so it never jumps about.
  */
 function plate(g, x, y, lines, accent = '#a5b4fc', align = 'left') {
