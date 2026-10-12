@@ -39,4 +39,8 @@ MarbleRush2D/MarbleRush2D_antigravity/
 !/js/racers.js
 !/js/betting.js
 /tools/*
-!/tools/serve.py
+
+# Local development aids, kept out of the public repository
+/MarbleRush2D/tools/qa/
+/MarbleRush2D/tools/brand/
+/MarbleRush2D/design/

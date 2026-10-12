@@ -6,15 +6,10 @@ The 2D build. Same product, parimutuel marble racing, back a marble, share
 the pool, on a canvas instead of WebGL.
 
 ```bash
-MR_ROOT="$PWD" python3 tools/serve.py          # or MR_PORT=8000 to match the brief
+npm start               # http://localhost:8090/MarbleRush2D/
 ```
 
-| URL | Loads |
-|---|---|
-| `http://localhost:8080/?v=2D` | this 2D game |
-| `http://localhost:8080/?v=3D` | the original 3D game |
-| `http://localhost:8080/` | 2D (the default) |
-| `http://localhost:8080/?map=...` | 3D, untouched, the section benches still work |
+This is the 2D build. An earlier 3D prototype (WebGL) is not part of this repository; the notes below explain why the game moved to 2D.
 
 ---
 

@@ -17,7 +17,7 @@
 
 /* The design tokens live in tokens.css (linked first). The names below are the
    OLD ones, kept as aliases so the rest of this file can be restyled piece by
-   piece (design/HANDOFF.md section 2). Remove an alias once nothing uses it. */
+   piece. Remove an alias once nothing uses it. */
 :root {
   --glass-hi: var(--surface-2);
   --stroke: var(--line);

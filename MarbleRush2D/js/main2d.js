@@ -30,7 +30,7 @@ const $ = (id) => document.getElementById(id);
 
 // The marble colours in the HUD come from MARBLE_DATA, the same source the
 // canvas draws from, so a row and its marble always match. They replace the
-// design's approximate --m-* values in tokens.css (design/HANDOFF.md section 2).
+// design's approximate --m-* values in tokens.css.
 // The token names are the tickers: --m-blz, --m-frs, --m-vnm, --m-roy, --m-bul.
 MARBLE_DATA.forEach((d, i) => {
   const root = document.documentElement.style;
@@ -1046,7 +1046,7 @@ const pressBet = () => { if (isLocked()) { renderTote(); return; } betFail = nul
 const topUp = () => { betting.topUp(); renderWallet(); renderTote(); };
 
 /**
- * What the dock shows now: the CTA ladder A01 to A11a (design/HANDOFF.md section 4). One place decides it, so
+ * What the dock shows now: the CTA ladder A01 to A11a. One place decides it, so
  * the label, the status row, the hint and the lock can never disagree. First match wins.
  */
 function dockView() {
