@@ -6,9 +6,8 @@ Third-party software used at runtime:
   @solana/web3.js   (MIT License)     https://github.com/solana-labs/solana-web3.js
   @solana/spl-token (Apache License 2.0)  https://github.com/solana-labs/solana-program-library
 
-The 2D engine in MarbleRush2D/js/engine2d.js grew from the author's own first
-2D marble-race prototype, made with the Lovable app builder, and was rewritten
-and extended as the project progressed.
+The 2D engine in MarbleRush2D/js/engine2d.js grew from the author's own earlier
+2D marble-race prototype and was rewritten and extended as the project progressed.
 
 "MarbleRush", its logo and its artwork are not licensed for use as a brand;
 the Apache License 2.0 does not grant trademark rights (section 6).
