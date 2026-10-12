@@ -4,9 +4,9 @@
 
 **Live marble racing on Solana where the result is sealed on-chain before anyone can bet, and anyone can replay the race to check it.**
 
-**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [Try it](TRY-IT.md) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
+**[Play the live devnet table](https://34-29-110-88.sslip.io/MarbleRush2D/)** &nbsp;·&nbsp; **[Demo video (2 min)](https://youtu.be/UpIkEwRXyes)** &nbsp;·&nbsp; [Pitch video (2 min)](https://youtu.be/uqZaTEtjcuc) &nbsp;·&nbsp; [Live stats and verified rounds](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) &nbsp;·&nbsp; [Try it](TRY-IT.md) &nbsp;·&nbsp; [FAQ for judges](FAQ.md) &nbsp;·&nbsp; [The blockchain layer](BLOCKCHAIN.md) &nbsp;·&nbsp; [How a race works](HOW-RACES-WORK.md) &nbsp;·&nbsp; [Security](SECURITY.md) &nbsp;·&nbsp; Apache-2.0
 
-> **Status: devnet prototype.** Test tokens only, worthless by design. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money.
+> **Status: devnet prototype.** Test tokens only, worthless by design. Built for the Colosseum Crypto World's Fair hackathon. Not audited, not for real money. Mainnet is targeted for early 2027, after an audited escrow program (see [Roadmap](#roadmap)).
 
 ## Try it in three minutes
 
@@ -116,7 +116,6 @@ Configuration (all optional):
 | `MR_FEE_PAYER=player` | players pay their own fee (fallback if a wallet refuses server-paid fees) |
 | `MR_TRUST_PROXY=1` | behind a reverse proxy: take the client address from `X-Forwarded-For` (only when the proxy is the only way in) |
 | `MR_HOST` | address to listen on (`127.0.0.1` when a proxy on the same machine is the only way in) |
-| `PORT` | the port (default 8090) |
 | `MR_REQUIRE_CHAIN=1` | refuse to start if the chain does not open (a public deploy must not fall back to demo money) |
 | `MR_SECURE=1` | always set the Secure cookie flag (also automatic on `X-Forwarded-Proto: https`) |
 | `MR_FAUCET_PER_IP`, `MR_FAUCET_PER_DAY` | faucet limits (default 3 per address, 150 per day) |
@@ -125,7 +124,7 @@ Serve it over HTTPS in public: the session cookie and wallet signatures depend o
 
 ## Changing the game while the server runs
 
-Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, and `MarbleRush2D/js/{engine2d,track2d,sectionStats,detcheck}.js`). Each round's commit memo records a hash of exactly those files and the git revision (`+dirty` if uncommitted). So:
+Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, and `MarbleRush2D/js/{engine2d,track2d,sectionStats,detcheck}.js`). Each round's commit memo records a hash of exactly those files, and the git revision when the server runs from a git checkout (`+dirty` if uncommitted; a deployed release has no `.git` folder, so it records `nogit` and the hash is what identifies the code). So:
 
 - `npm run dev` restarts the server whenever a file changes. A restart refunds the bets of the unfinished round and continues the round numbering; nothing is lost.
 - If the files change under a *running* server, open pages warn "the game was updated, reload", because the server would otherwise race with older code than the pages load.
@@ -164,9 +163,15 @@ js/                           rng.js, racers.js, betting.js shared with the engi
 
 ## Roadmap
 
-- An on-chain escrow program (Anchor) so payouts follow program rules instead of the server key.
-- A 3D renderer for the same engine (an earlier 3D build exists; the 2D build is the product for now).
-- One-time token approval so bets need no wallet popup.
+| When | What |
+|---|---|
+| Now (Oct 2026) | Devnet prototype live |
+| Oct–Nov 2026 | Race nights with partner communities on devnet |
+| Dec 2026–Jan 2027 | An on-chain escrow program (Anchor) so stakes and payouts follow program rules instead of a server key, and an audit |
+| Early 2027 (target) | Mainnet launch, starting with sponsored-prize races |
+| After a licence route | Real-money play, only in licensed regions and after legal advice; no date until then |
+
+Also planned: one-time token approval so a bet needs no wallet popup, and a 3D renderer for the same engine.
 
 ## License
 
