@@ -17,6 +17,9 @@ WITH_SECRETS=0 FORCE=0
 for a in "$@"; do case "$a" in --secrets) WITH_SECRETS=1 ;; --force) FORCE=1 ;; *) echo "unknown option $a"; exit 2 ;; esac; done
 
 [ -z "$(git status --porcelain --untracked-files=no)" ] || echo "note: uncommitted changes are NOT deployed (only HEAD is)"
+# verify-round finds the race code of an old round in the public git history, so only pushed code may race.
+git fetch -q origin 2>/dev/null || true
+if [ -z "$(git branch -r --contains HEAD 2>/dev/null)" ]; then echo "not deploying: HEAD is not pushed. Push first, so every round this code races can be verified from the public history."; exit 4; fi
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; umask 077
 git archive --format=tar.gz -o "$T/release.tgz" HEAD
 FILES=("$T/release.tgz")

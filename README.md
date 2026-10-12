@@ -20,18 +20,20 @@
 
 ```bash
 git clone https://github.com/SanjjuK/MarbleRush && cd MarbleRush && npm install
-node MarbleRush2D/tools/verify-round.mjs 4wjQCCfWLgBDkVkzd7M2UKxGocYULyx1mCsDmwEzwiMQ67XoySBkC6VV2epViYbG6c8jopChJroVgKr8wU2px5aL
+node MarbleRush2D/tools/verify-round.mjs L2SifNSGTKMSz7Xc5R5n8NWdDuudMNSbPnrVZruer6PdFC8cUF3LgZuxG3rkX8tLaiw9J3c8HUJKBBUaHb9yfMZ
 ```
 
-That is the reveal transaction of a real round raced on the hosted server. The tool reads the round's two Solana transactions, checks the revealed seed against the hash posted **before betting**, checks the order of events, and replays the whole race on your computer. Expected ending:
+That is the reveal transaction of round 71, a real round raced on the hosted server (the one in the demo video). The tool reads the round's two Solana transactions, checks the revealed seed against the hash posted **before betting**, checks the order of events, and replays the whole race on your computer. Expected ending:
 
 ```
-PASS  the revealed seed hashes to the committed hash
-PASS  the commit landed first: slot 509287452 before slot 509288716
+PASS  the revealed seed hashes to the committed hash (68f493cc9a8d8377…)
+PASS  the commit landed first: slot 509651491 before slot 509652793
 PASS  replaying the race gives the published order (Frost > Bullion > Royal > Blaze > Venom)
-PASS  the race code is identical to the version that raced
+PASS  the race code is identical to the version that raced (0d64caece56f738c, nogit)
 verified
 ```
+
+Rounds raced on an older version of the game verify too: the tool finds that version in the git history and replays with it. Round 38 is one (`verify-round 4wjQCCfWLgBDkVkzd7M2UKxGocYULyx1mCsDmwEzwiMQ67XoySBkC6VV2epViYbG6c8jopChJroVgKr8wU2px5aL`), ending in `PASS  replayed with the exact race code that raced (08906e4cecc52439, commit b2053045 …)`.
 
 Every round on the [stats page](https://34-29-110-88.sslip.io/MarbleRush2D/stats.html) links to its commit, reveal and payout transactions on Solana Explorer.
 
@@ -127,7 +129,7 @@ Race rules live in a handful of files (`js/rng.js`, `racers.js`, `betting.js`, a
 
 - `npm run dev` restarts the server whenever a file changes. A restart refunds the bets of the unfinished round and continues the round numbering; nothing is lost.
 - If the files change under a *running* server, open pages warn "the game was updated, reload", because the server would otherwise race with older code than the pages load.
-- `verify-round` tells you when a round was raced by a different version of the code, and which revision to check out to replay it.
+- Old rounds keep verifying after the game changes. Each commit memo carries a hash of the race code; when it is not the code in your copy, `verify-round` finds that exact version in this repository's git history by its hash and replays the round with it. Deploys only run pushed code, and the history is never rewritten, so every version that ever raced stays public.
 
 ## Tests
 
@@ -156,7 +158,7 @@ MarbleRush2D/
   server/tables.json          the tables: minimum and maximum players, house stakes
   server/racesim.mjs          the race, computed on worker threads
   stats.html, js/stats.js     the public stats page (reads /api/stats)
-  tools/                      verify-round, chain setup, end-to-end tests, QA harnesses
+  tools/                      verify-round, chain setup, end-to-end tests, fairness and course simulations
 js/                           rng.js, racers.js, betting.js shared with the engine
 ```
 

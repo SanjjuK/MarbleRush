@@ -15,8 +15,16 @@
 //
 // If all four hold, the operator could not have picked the result after seeing
 // the bets.
+//
+// The game changes; old rounds still verify. The commit memo carries a hash of
+// the race code that raced. When that is not the code in this copy, the exact
+// version is looked up in this repository's git history by that hash and the
+// race is replayed with it, so every round verifies with the code it ran on.
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { Connection } from '@solana/web3.js';
 import { rpcUrl, MEMO_PROGRAM } from '../server/chain.mjs';
@@ -25,10 +33,36 @@ import { MARBLE_DATA } from '../../js/racers.js';
 import { buildTrack } from '../js/track2d.js';
 import { Engine2D, SIM_DT } from '../js/engine2d.js';
 import { buildPrint } from '../js/detcheck.js';
-import { codeHash } from '../server/codeversion.mjs';
+import { codeHash, CODE_FILES } from '../server/codeversion.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..', '..');
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
+const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 << 20 });
+const THIS_CODE = { makeRng, MARBLE_DATA, buildTrack, Engine2D, SIM_DT, buildPrint };
+
+/** The commit in this clone's history whose race files hash to `want` (what a commit memo carries), or null. */
+export function findRaceCommit(want) {
+  let revs;
+  try { revs = git('rev-list', '--all', '--', ...CODE_FILES).toString().split('\n').filter(Boolean); } catch { return null; }
+  for (const rev of revs) {
+    const h = createHash('sha256');
+    try { for (const f of CODE_FILES) { h.update(f + '\0'); h.update(git('show', `${rev}:${f}`)); h.update('\0'); } } catch { continue; }
+    if (h.digest('hex').slice(0, 16) === want) return rev;
+  }
+  return null;
+}
+
+/** The race code exactly as it was at `rev`, unpacked to a temporary folder and loaded next to (not over) this copy's. */
+async function raceCodeAt(rev) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'marblerush-race-'));
+  execFileSync('tar', ['-x', '-C', dir], { input: git('archive', '--format=tar', rev, 'js', 'MarbleRush2D/js') });
+  writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
+  const load = (f) => import(pathToFileURL(path.join(dir, f)).href);
+  const [{ makeRng }, { MARBLE_DATA }, { buildTrack }, { Engine2D, SIM_DT }, { buildPrint }] = await Promise.all(
+    ['js/rng.js', 'js/racers.js', 'MarbleRush2D/js/track2d.js', 'MarbleRush2D/js/engine2d.js', 'MarbleRush2D/js/detcheck.js'].map(load));
+  return { code: { makeRng, MARBLE_DATA, buildTrack, Engine2D, SIM_DT, buildPrint }, hash: await codeHash(dir), done: () => rmSync(dir, { recursive: true, force: true }) };
+}
 
 /** The memo a transaction carries, who signed it, and when it landed. */
 async function readMemo(connection, signature) {
@@ -39,8 +73,9 @@ async function readMemo(connection, signature) {
   return { text: ix.parsed, signer: tx.transaction.message.accountKeys.find(k => k.signer).pubkey.toBase58(), slot: tx.slot, time: tx.blockTime };
 }
 
-/** Race it again from the two seeds, the way every browser does. */
-export function replayRace(courseSeed, raceSeed, blocks) {
+/** Race it again from the two seeds, the way every browser does (with this copy's race code unless given another). */
+export function replayRace(courseSeed, raceSeed, blocks, code = THIS_CODE) {
+  const { makeRng, MARBLE_DATA, buildTrack, Engine2D, SIM_DT } = code;
   const track = buildTrack(makeRng(courseSeed), blocks ? { count: blocks } : {});
   const eng = new Engine2D({ track, rng: makeRng(raceSeed), racers: MARBLE_DATA });
   eng.settle(); eng.openGate();
@@ -68,15 +103,24 @@ export async function verifyReveal(connection, revealSig) {
   check(com.slot < rev.slot || (com.slot === rev.slot && com.time <= rev.time), `the commit landed first: slot ${com.slot} before slot ${rev.slot}`);
   check(cid === id && ctoken === token, `both memos are round ${id}, token ${token}`);
   check(com.signer === rev.signer, `both signed by ${rev.signer.slice(0, 4)}…${rev.signer.slice(-4)}`);
-  const mine = replayRace(courseSeed, raceSeed, +blocks || 0);
-  const replayOk = mine.join(',') === order;
-  const localCode = await codeHash(path.join(HERE, '..', '..'));
-  const sameCode = !memoCode || memoCode === localCode;
-  check(replayOk, replayOk ? `replaying the race gives the published order (${mine.map(i => MARBLE_DATA[i].name).join(' > ')})`
-    : `replaying the race does NOT give the published order${sameCode ? '' : `: this copy of the game is not the one that raced, check out ${memoRev || 'the recorded revision'} and run again`}`);
-  check(print === buildPrint(), `this machine's engine matches the one that raced (build ${print})`);
-  if (memoCode) check(sameCode, sameCode ? `the race code is identical to the version that raced (${memoCode}, ${memoRev})`
-    : `the race code differs from the version that raced (memo ${memoCode} at ${memoRev}, here ${localCode})${replayOk ? ': the replay still matched' : ''}`, replayOk);
+  // Replay with the code that raced: this copy's when the hashes agree, otherwise that version from git history.
+  const localCode = await codeHash(ROOT);
+  let code = THIS_CODE, used = null;
+  if (memoCode && memoCode !== localCode) {
+    const rev = findRaceCommit(memoCode);
+    if (rev) { used = await raceCodeAt(rev); used.rev = rev; code = used.code; }
+  }
+  try {
+    const mine = replayRace(courseSeed, raceSeed, +blocks || 0, code);
+    const replayOk = mine.join(',') === order;
+    const sameCode = !memoCode || memoCode === localCode || (used && used.hash === memoCode);
+    check(replayOk, replayOk ? `replaying the race gives the published order (${mine.map(i => MARBLE_DATA[i].name).join(' > ')})`
+      : `replaying the race does NOT give the published order${sameCode ? '' : ': the version that raced was not found in this copy\'s git history (clone the full repository and run again)'}`);
+    check(print === code.buildPrint(), `${used ? 'the engine used here' : 'this machine\'s engine'} matches the one that raced (build ${print})`);
+    if (memoCode) check(sameCode, used && sameCode ? `replayed with the exact race code that raced (${memoCode}, commit ${used.rev.slice(0, 8)} in this repository's history)`
+      : sameCode ? `the race code is identical to the version that raced (${memoCode}, ${memoRev})`
+      : `the race code differs from the version that raced (memo ${memoCode}, here ${localCode}), and that version is not in this copy's git history${replayOk ? ': the replay still matched' : ''}`, replayOk);
+  } finally { if (used) used.done(); }
   return { id, token, pool: +pool, order: order.split(',').map(Number), commitSig, revealSig, checks, ok: checks.every(c => c.ok || c.warn) };
 }
 
